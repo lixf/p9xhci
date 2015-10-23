@@ -12,27 +12,23 @@
 #include"../port/error.h"
 #include"../port/usb.h"
 
-#define INB(x) inb(ctlr->port+(x))
-#define INS(x) ins(ctlr->port+(x))
 #define INL(x) inl(ctlr->port+(x))
-#define OUTB(x, v) outb(ctlr->port+(x), (v))
-#define OUTS(x, v) outs(ctlr->port+(x), (v))
 #define OUTL(x, v) outl(ctlr->port+(x), (v))
 #define TRUNC(x, sz) ((x) & ((sz)-1))
-#define PTR(q) ((void*) KADDR((ulong)(q) & ~ (0xF|PCIWINDOW)))
-#define QPTR(q) ((Qh*)PTR(q))
-#define TPTR(q) ((Td*)PTR(q))
+//#define PTR(q) ((void*) KADDR((ulong)(q) & ~ (0xF|PCIWINDOW)))
 #define PORT(p) (Portsc0 + 2*(p))
-#define diprint if(debug || iso->debug) print
-#define ddiprint if(debug>1 || iso->debug>1) print
-#define dqprint if(debug || (qh->io && qh->io->debug)) print
-#define ddqprint if(debug>1 || (qh->io && qh->io->debug>1)) print
+//#define diprint if(debug || iso->debug) print
+//#define ddiprint if(debug>1 || iso->debug>1) print
+//#define dqprint if(debug || (qh->io && qh->io->debug)) print
+//#define ddqprint if(debug>1 || (qh->io && qh->io->debug>1)) print
 
-/* static values -- read from CAPREG*/
+/* static values -- read from CAPREG */
 static uint caplength; 
 
 /* Hard coded values */
 #define XHCI_PCI_BAR 0
+#define XHCI_MAXSLOTSEN 2
+#define _64B 64
 
 /*************************************************
  * Controls for reading/writing of the registers *
@@ -92,8 +88,13 @@ static uint caplength;
 
 /* declarations */
 struct Ctlr;  
-struct Trb; 
-struct Td; 
+struct Trb;     // for constructing transfer ring
+struct Td;      // for constructing transfer 
+struct SlotCtx; // slot context
+struct EpCtx;   // endpoint context 
+
+struct Packed32B;   // Generic packed 32-byte -- used for context
+struct Packed16B;   // Generic packed 16-byte -- used for TRBs
 
 
 /* definitions */
@@ -122,15 +123,144 @@ struct Td {
 
 }; 
 
+struct SlotCtx {
+    /* word 0 */
+    uint routeStr;  // bits[19:00] route string
+    char speed;     // bits[23:20] speed
+    char mmt;       // bits[25] multi-TT TODO
+    char hub;       // bits[26] 1 if device is hub
+    char ctxEntry;  // bits[31:27] index of last valid entry
+    
+    /* word 1 */
+    uint maxExit;   // bits[15:00] max exit latency in u-sec
+    char rootPort;  // bits[23:16] Root hub port number
+    char numPort;   // bits[31:24] if dev is hub, shows num of ports in dev
+
+    /* word 2 */
+    char tthubSlot;  // bits[7:0]   TT hub slot ID TODO
+    char ttportNum;  // bits[15:8]  TT port number TODO
+    char ttt;        // bits[17:16] TT think time TODO
+    uint intrTarget; // bits[31:22] Interrupt target TODO 
+
+    /* word 3 */
+    char devAddr;   // bits[7:0]    USB device address
+    char slotState; // bits[31:27]  Slot state -- written by hw
+
+    /* word 4-7 reserved = zeros */
+}; 
+
+struct EpCtx {
+    /* word 0 */
+    char epstate;   // bits[2:0] current operational state
+    char mult;      // bits[9:8] max num of burst TODO
+    char maxPStream;// bits[14:10] Max Primary Streams TODO
+    char lsa;       // bits[15] linear stream array TODO
+    char interval;  // bits[23:16] interval
+    char maxEsitHi; // bits[31:24] max ep service time interval payload hi TODO
+    
+    /* word 1 */
+    char cErr;       // bits[2:1] Error count
+    char epType;     // bits[5:3] Endpoint type
+    char hostInitDis;// bits[7] Host initiate disable
+    char maxBurst;   // bits[15:8] Max burst size
+    uint maxPktSize; // bits[31:16] Max packet size
+
+    /* word 2 */
+    char deqCyState;// bits[0] Dequeue Cycle State
+    uint trDeqPtrLo;// bits[31:4] TR dequeue pointer Low
+
+    /* word 3 */
+    uint trDeqPtrHi;// bits[31:0] TR dequeue pointer High
+
+    /* word 4 */
+    uint aveTrbLen; // bits[15:0] average TRB length
+    char maxEsitLo; // bits[31:24] max ep service time interval payload lo TODO
+    
+    /* word 5-7 */
+    uint rsvd[3];
+}; 
+
+
+struct Packed32B {
+    uint words[8]; 
+};
+
+struct Packed16B {
+    uint words[4]; 
+};
+
 /* typedefs */
 typedef struct Ctlr Ctlr; 
 typedef struct Trb Trb; 
 typedef struct Td Td; 
-
+typedef struct SlotCtx slotCtx; 
+typedef struct EpCtx epCtx; 
+typedef struct Packed32B packed32B; 
+typedef struct Packed16B packed16B; 
 
 /*********************************************
  * xHCI specific functions
  *********************************************/
+static inline void
+pack_slot_ctx(packed32B *packed, slotCtx *slot) {
+    uint word0 = (slots->ctxEntry & 0x1F) << 27; 
+    word0 = word0 | ((slots->hub & 0x1) << 26);
+    word0 = word0 | ((slots->mmt & 0x1) << 25);
+    word0 = word0 | ((slots->speed & 0xF) << 20);
+    word0 = word0 | (slots->routeStr & 0xFFFFF); 
+
+    uint word1 = (slots->numPort & 0xFF) << 24; 
+    word1 = word1 | ((slots->rootPort & 0xFF) << 26);
+    word1 = word1 | (slots->maxExit & 0xFFFF);
+  
+    uint word2 = (slots->intrTarget & 0x3FF) << 22; 
+    word2 = word2 | ((slots->ttt & 0x3) << 16);
+    word2 = word2 | ((slots->ttportNum & 0xFF) << 8);
+    word2 = word2 | (slots->tthubSlot & 0xFF);
+    
+    uint word3 = (slots->slotState & 0x1F) << 27;
+    word3 = word3 | (slots->devAddr & 0xFF);
+    
+    packed->words[0] = word0;
+    packed->words[1] = word1;
+    packed->words[2] = word2;
+    packed->words[3] = word3;
+    return; 
+}
+
+
+static inline void
+pack_ep_ctx(packed32B *packed, epCtx *ep) {
+    uint word0 = (ep->maxEsitHi & 0xFF) << 24; 
+    word0 = word0 | ((ep->interval & 0xFF) << 16);
+    word0 = word0 | ((ep->lsa & 0x1) << 15);
+    word0 = word0 | ((ep->maxPStream & 0x1F) << 10);
+    word0 = word0 | ((ep->mult & 0x3) << 8);
+    word0 = word0 | (ep-> epstate & 0x7); 
+
+    uint word1 = (ep->maxPktSize & 0xFFFF) << 16; 
+    word1 = word1 | ((ep->maxBurst & 0xFF) << 8);
+    word1 = word1 | ((ep->hostInitDis & 0x1) << 7);
+    word1 = word1 | ((ep->epType & 0x3) << 3);
+    word1 = word1 | ((ep->cErr & 0x3) << 1);
+  
+    uint word2 = (ep->trDeqPtrLo & 0xFFFFFFF0) << 4; 
+    word2 = word2 | (ep->deqCyState & 0x1);
+    
+    uint word3 = ep->trDeqPtrHi; 
+    
+    uint word4 = (slots->maxEsitLo & 0xFF) << 24;
+    word4 = word4 | (slots->devAddr & 0xFFFF);
+    
+    packed->words[0] = word0;
+    packed->words[1] = word1;
+    packed->words[2] = word2;
+    packed->words[3] = word3;
+    packed->words[4] = word4;
+    return; 
+}
+
+
 /** @brief This function will write to one of the registers
  *  @param TODO
  **/
@@ -147,468 +277,7 @@ xhcireg_rd(Ctlr *ctlr, uint offset, uint mask)
     return (INL(offset) & mask); 
 }
 
-/*******************************************
- * Old code starts here
- *******************************************/
-
 static Ctlr* ctlrs[Nhcis];
-
-static Tdpool tdpool;
-static Qhpool qhpool;
-static int debug;
-
-static char* qhsname[] = { "idle", "install", "run", "done", "close", "FREE" };
-
-static void
-uhcicmd(Ctlr *ctlr, int c)
-{
-OUTS(Cmd, c);
-}
-
-static void
-uhcirun(Ctlr *ctlr, int on)
-{
-int i;
-
-ddprint("uhci %#ux setting run to %d\n", ctlr->port, on);
-
-if(on)
-uhcicmd(ctlr, INS(Cmd)|Crun);
-else
-uhcicmd(ctlr, INS(Cmd) & ~Crun);
-for(i = 0; i < 100; i++)
-if(on == 0 && (INS(Status) & Shalted) != 0)
-break;
-else if(on != 0 && (INS(Status) & Shalted) == 0)
-break;
-else
-delay(1);
-if(i == 100)
-dprint("uhci %#x run cmd timed out\n", ctlr->port);
-ddprint("uhci %#ux cmd %#ux sts %#ux\n",
-ctlr->port, INS(Cmd), INS(Status));
-}
-
-static int
-tdlen(Td *td)
-{
-return (td->csw+1) & Tdlen;
-}
-
-static int
-maxtdlen(Td *td)
-{
-return ((td->token>>21)+1) & (Tdmaxpkt-1);
-}
-
-static int
-tdtok(Td *td)
-{
-return td->token & 0xFF;
-}
-
-static char*
-seprinttd(char *s, char *se, Td *td)
-{
-s = seprint(s, se, "%#p link %#ulx", td, td->link);
-if((td->link & Tdvf) != 0)
-s = seprint(s, se, "V");
-if((td->link & Tdterm) != 0)
-s = seprint(s, se, "T");
-if((td->link & Tdlinkqh) != 0)
-s = seprint(s, se, "Q");
-s = seprint(s, se, " csw %#ulx ", td->csw);
-if(td->csw & Tdactive)
-s = seprint(s, se, "a");
-if(td->csw & Tdiso)
-s = seprint(s, se, "I");
-if(td->csw & Tdioc)
-s = seprint(s, se, "i");
-if(td->csw & Tdlow)
-s = seprint(s, se, "l");
-if((td->csw & (Tderr1|Tderr2)) == 0)
-s = seprint(s, se, "z");
-if(td->csw & Tderrors)
-s = seprint(s, se, " err %#ulx", td->csw & Tderrors);
-if(td->csw & Tdstalled)
-s = seprint(s, se, "s");
-if(td->csw & Tddberr)
-s = seprint(s, se, "d");
-if(td->csw & Tdbabble)
-s = seprint(s, se, "b");
-if(td->csw & Tdnak)
-s = seprint(s, se, "n");
-if(td->csw & Tdcrcto)
-s = seprint(s, se, "c");
-if(td->csw & Tdbitstuff)
-s = seprint(s, se, "B");
-s = seprint(s, se, " stslen %d", tdlen(td));
-
-s = seprint(s, se, " token %#ulx", td->token);
-if(td->token == 0)/* the BWS loopback Td, ignore rest */
-return s;
-s = seprint(s, se, " maxlen %d", maxtdlen(td));
-if(td->token & Tddata1)
-s = seprint(s, se, " d1");
-else
-s = seprint(s, se, " d0");
-s = seprint(s, se, " id %#ulx:", (td->token>>15) & Epmax);
-s = seprint(s, se, "%#ulx", (td->token>>8) & Devmax);
-switch(tdtok(td)){
-case Tdtokin:
-s = seprint(s, se, " in");
-break;
-case Tdtokout:
-s = seprint(s, se, " out");
-break;
-case Tdtoksetup:
-s = seprint(s, se, " setup");
-break;
-default:
-s = seprint(s, se, " BADPID");
-}
-s = seprint(s, se, "\n\t  buffer %#ulx data %#p", td->buffer, td->data);
-s = seprint(s, se, " ndata %uld sbuff %#p buff %#p",
-td->ndata, td->sbuff, td->buff);
-if(td->ndata > 0)
-s = seprintdata(s, se, td->data, td->ndata);
-return s;
-}
-
-static void
-isodump(Isoio *iso, int all)
-{
-char buf[256];
-Td *td;
-int i;
-
-print("iso %#p %s state %d nframes %d"
-" td0 %#p tdu %#p tdi %#p data %#p\n",
-iso, iso->tok == Tdtokin ? "in" : "out",
-iso->state, iso->nframes, iso->tdps[iso->td0frno],
-iso->tdu, iso->tdi, iso->data);
-if(iso->err != nil)
-print("\terr='%s'\n", iso->err);
-if(all == 0){
-seprinttd(buf, buf+sizeof(buf), iso->tdu);
-print("\ttdu %s\n", buf);
-seprinttd(buf, buf+sizeof(buf), iso->tdi);
-print("\ttdi %s\n", buf);
-}else{
-td = iso->tdps[iso->td0frno];
-for(i = 0; i < iso->nframes; i++){
-seprinttd(buf, buf+sizeof(buf), td);
-if(td == iso->tdi)
-print("i->");
-if(td == iso->tdu)
-print("u->");
-print("\t%s\n", buf);
-td = td->next;
-}
-}
-}
-
-static int
-sameptr(void *p, ulong l)
-{
-if(l & QHterm)
-return p == nil;
-return PTR(l) == p;
-}
-
-static void
-dumptd(Td *td, char *pref)
-{
-char buf[256];
-char *s;
-char *se;
-int i;
-
-i = 0;
-se = buf+sizeof(buf);
-for(; td != nil; td = td->next){
-s = seprinttd(buf, se, td);
-if(!sameptr(td->next, td->link))
-seprint(s, se, " next %#p != link %#ulx %#p",
-td->next, td->link, TPTR(td->link));
-print("%std %s\n", pref, buf);
-if(i++ > 20){
-print("...more tds...\n");
-break;
-}
-}
-}
-
-static void
-qhdump(Qh *qh, char *pref)
-{
-char buf[256];
-char *s;
-char *se;
-ulong td;
-int i;
-
-s = buf;
-se = buf+sizeof(buf);
-s = seprint(s, se, "%sqh %s %#p state %s link %#ulx", pref,
-qh->tag, qh, qhsname[qh->state], qh->link);
-if(!sameptr(qh->tds, qh->elink))
-s = seprint(s, se, " [tds %#p != elink %#ulx %#p]",
-qh->tds, qh->elink, TPTR(qh->elink));
-if(!sameptr(qh->next, qh->link))
-s = seprint(s, se, " [next %#p != link %#ulx %#p]",
-qh->next, qh->link, QPTR(qh->link));
-if((qh->link & Tdterm) != 0)
-s = seprint(s, se, "T");
-if((qh->link & Tdlinkqh) != 0)
-s = seprint(s, se, "Q");
-s = seprint(s, se, " elink %#ulx", qh->elink);
-if((qh->elink & Tdterm) != 0)
-s = seprint(s, se, "T");
-if((qh->elink & Tdlinkqh) != 0)
-s = seprint(s, se, "Q");
-s = seprint(s, se, " io %#p", qh->io);
-if(qh->io != nil && qh->io->err != nil)
-seprint(s, se, " err='%s'", qh->io->err);
-print("%s\n", buf);
-dumptd(qh->tds, "\t");
-if((qh->elink & QHterm) == 0){
-print("\thw tds:");
-i = 0;
-for(td = qh->elink; (td & Tdterm) == 0; td = TPTR(td)->link){
-print(" %#ulx", td);
-if(td == TPTR(td)->link)/* BWS Td */
-break;
-if(i++ > 40){
-print("...");
-break;
-}
-}
-print("\n");
-}
-}
-
-static void
-xdump(Ctlr *ctlr, int doilock)
-{
-Isoio *iso;
-Qh *qh;
-int i;
-
-if(doilock){
-if(ctlr == ctlrs[0]){
-lock(&tdpool);
-print("tds: alloc %d = inuse %d + free %d\n",
-tdpool.nalloc, tdpool.ninuse, tdpool.nfree);
-unlock(&tdpool);
-lock(&qhpool);
-print("qhs: alloc %d = inuse %d + free %d\n",
-qhpool.nalloc, qhpool.ninuse, qhpool.nfree);
-unlock(&qhpool);
-}
-ilock(ctlr);
-}
-print("uhci port %#x frames %#p nintr %d ntdintr %d",
-ctlr->port, ctlr->frames, ctlr->nintr, ctlr->ntdintr);
-print(" nqhintr %d nisointr %d\n", ctlr->nqhintr, ctlr->nisointr);
-print("cmd %#ux sts %#ux fl %#ulx ps1 %#ux ps2 %#ux frames[0] %#ulx\n",
-INS(Cmd), INS(Status),
-INL(Flbaseadd), INS(PORT(0)), INS(PORT(1)),
-ctlr->frames[0]);
-for(iso = ctlr->iso; iso != nil; iso = iso->next)
-isodump(iso, 1);
-i = 0;
-for(qh = ctlr->qhs; qh != nil; qh = qh->next){
-qhdump(qh, "");
-if(i++ > 20){
-print("qhloop\n");
-break;
-}
-}
-print("\n");
-if(doilock)
-iunlock(ctlr);
-}
-
-static Td*
-tdalloc(void)
-{
-int i;
-Td *td;
-Td *pool;
-
-lock(&tdpool);
-if(tdpool.free == nil){
-ddprint("uhci: tdalloc %d Tds\n", Incr);
-pool = xspanalloc(Incr*sizeof(Td), Align, 0);
-if(pool == nil)
-panic("tdalloc");
-for(i=Incr; --i>=0;){
-pool[i].next = tdpool.free;
-tdpool.free = &pool[i];
-}
-tdpool.nalloc += Incr;
-tdpool.nfree += Incr;
-}
-td = tdpool.free;
-tdpool.free = td->next;
-tdpool.ninuse++;
-tdpool.nfree--;
-unlock(&tdpool);
-
-memset(td, 0, sizeof(Td));
-td->link = Tdterm;
-assert(((ulong)td & 0xF) == 0);
-return td;
-}
-
-static void
-tdfree(Td *td)
-{
-if(td == nil)
-return;
-free(td->buff);
-td->buff = nil;
-lock(&tdpool);
-td->next = tdpool.free;
-tdpool.free = td;
-tdpool.ninuse--;
-tdpool.nfree++;
-unlock(&tdpool);
-}
-
-static void
-qhlinkqh(Qh* qh, Qh* next)
-{
-if(next == nil)
-qh->link = QHterm;
-else{
-next->link = qh->link;
-next->next = qh->next;
-qh->link = PCIWADDR(next)|QHlinkqh;
-}
-qh->next = next;
-}
-
-static void
-qhlinktd(Qh *qh, Td *td)
-{
-qh->tds = td;
-if(td == nil)
-qh->elink = QHvf|QHterm;
-else
-qh->elink = PCIWADDR(td);
-}
-
-static void
-tdlinktd(Td *td, Td *next)
-{
-td->next = next;
-if(next == nil)
-td->link = Tdterm;
-else
-td->link = PCIWADDR(next)|Tdvf;
-}
-
-static Qh*
-qhalloc(Ctlr *ctlr, Qh *prev, Qio *io, char *tag)
-{
-int i;
-Qh *qh;
-Qh *pool;
-
-lock(&qhpool);
-if(qhpool.free == nil){
-ddprint("uhci: qhalloc %d Qhs\n", Incr);
-pool = xspanalloc(Incr*sizeof(Qh), Align, 0);
-if(pool == nil)
-panic("qhalloc");
-for(i=Incr; --i>=0;){
-pool[i].next = qhpool.free;
-qhpool.free = &pool[i];
-}
-qhpool.nalloc += Incr;
-qhpool.nfree += Incr;
-}
-qh = qhpool.free;
-qhpool.free = qh->next;
-qh->next = nil;
-qh->link = QHterm;
-qhpool.ninuse++;
-qhpool.nfree--;
-unlock(&qhpool);
-
-qh->tds = nil;
-qh->elink = QHterm;
-qh->state = Qidle;
-qh->io = io;
-qh->tag = nil;
-kstrdup(&qh->tag, tag);
-
-if(prev != nil){
-coherence();
-ilock(ctlr);
-qhlinkqh(prev, qh);
-iunlock(ctlr);
-}
-
-assert(((ulong)qh & 0xF) == 0);
-return qh;
-}
-
-static void
-qhfree(Ctlr *ctlr, Qh *qh)
-{
-Td *td;
-Td *ltd;
-Qh *q;
-
-if(qh == nil)
-return;
-
-ilock(ctlr);
-for(q = ctlr->qhs; q != nil; q = q->next)
-if(q->next == qh)
-break;
-if(q == nil)
-panic("qhfree: nil q");
-q->next = qh->next;
-q->link = qh->link;
-iunlock(ctlr);
-
-for(td = qh->tds; td != nil; td = ltd){
-ltd = td->next;
-tdfree(td);
-}
-lock(&qhpool);
-qh->state = Qfree;/* paranoia */
-qh->next = qhpool.free;
-qh->tag = nil;
-qh->io = nil;
-qhpool.free = qh;
-qhpool.ninuse--;
-qhpool.nfree++;
-unlock(&qhpool);
-ddprint("qhfree: qh %#p\n", qh);
-}
-
-static char*
-errmsg(int err)
-{
-if(err == 0)
-return "ok";
-if(err & Tdcrcto)
-return "crc/timeout error";
-if(err & Tdbabble)
-return "babble detected";
-if(err & Tddberr)
-return "db error";
-if(err & Tdbitstuff)
-return "bit stuffing error";
-if(err & Tdstalled)
-return Estalled;
-return Eio;
-}
 
 /**********************************************
  * Top level interface functions -- debugging * 
@@ -656,7 +325,6 @@ seprintep(char *s, char *e, Ep *ep)
 static void
 dump(Hci *hp)
 {
-    xdump(hp->aux, 1);
 }
 
 
@@ -816,9 +484,56 @@ static void
 uhcimeminit(Ctlr *ctlr)
 {
     // TODO
-    // allocate the device context
-    ctlr->devctx_bar = 0; 
-    // allocate the first command TRB
+    // allocate memory for slot (context + MaxSlotsEn) * Packed32B
+    slotCtx *slot_ctx = xspanalloc(sizeof(struct SlotCtx), _64B, _64B);
+    packed32B *packed_slot = xspanalloc(sizeof(struct Packed32B), _64B, _64B);
+    
+    epCtx *ep_ctx[XHCI_MAXSLOTSEN]; 
+    packed32B *packed_ep[XHCI_MAXSLOTSEN]; 
+    for(int i = 0; i < XHCI_MAXSLOTSEN; i++) {
+        ep_ctx[i] = (epCtx *)xspanalloc(sizeof(struct EpCtx), _64B, _64B);
+        packed_ep[i] = (packed32B *)xspanalloc(sizeof(struct Packed32B), _64B, _64B);
+    }
+    
+    // now configure the slot and endpoint; then pack into 32B structs
+    slot_ctx->routeStr  = 0; 
+    slot_ctx->speed     = 0; 
+    slot_ctx->mmt       = 0; 
+    slot_ctx->hub       = 0; 
+    slot_ctx->ctxEntry  = 0; 
+
+    slot_ctx->maxExit   = 0; 
+    slot_ctx->rootPort  = 0; 
+    slot_ctx->numPort   = 0; 
+    
+    slot_ctx->intrTarget = 0; 
+    
+    slot_ctx->devAddr   = 0; 
+    slot_ctx->slotState = 0; 
+    pack_slot_ctx(packed_slot, slot_ctx);
+    
+    // now manually configure 2 ep
+    packed_ep[0]->epstate       = 0;
+    packed_ep[0]->hostInitDis   = 0;
+    packed_ep[0]->trDeqPtrLo    = 0;
+    packed_ep[0]->trDeqPtrHi    = 0;
+    pack_ep_ctx(packed_ep[0], ep_ctx[0]);
+    
+    packed_ep[1]->epstate       = 0;
+    packed_ep[1]->hostInitDis   = 0;
+    packed_ep[1]->trDeqPtrLo    = 0;
+    packed_ep[1]->trDeqPtrHi    = 0;
+    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+
+    // allocate the DCBAAP
+    uint *dcbaap = (uint *)xspanalloc((sizeof(void *) * (1+XHCI_MAXSLOTSEN)), _64B, _64B); 
+    dcbaap[0] = packed_slot;
+    dcbaap[1] = &(packed_ep[0]);
+    dcbaap[2] = &(packed_ep[1]);
+    ctlr->devctx_bar = dxbaap; 
+    
+    
+    // allocate the first command TRB TODO
     ctlr->cmd_ring_bar = 0; 
 }
     
