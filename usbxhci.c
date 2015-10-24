@@ -84,6 +84,8 @@ static uint caplength;
 /* capability register */
 
 
+/* helper macros */
+#define REPORT(s) print("*** xHCI: %s ***\n", s); 
 
 
 /* declarations */
@@ -116,8 +118,129 @@ struct Ctlr {
 };
 
 struct Trb {
+    volatile uint64_t   qwTrb0;
+#define XHCI_TRB_0_DIR_IN_MASK      (0x80ULL << 0)
+#define XHCI_TRB_0_WLENGTH_MASK     (0xFFFFULL << 48)
+    volatile uint32_t   dwTrb2;
+#define XHCI_TRB_2_ERROR_GET(x)     (((x) >> 24) & 0xFF)
+#define XHCI_TRB_2_ERROR_SET(x)     (((x) & 0xFF) << 24)
+#define XHCI_TRB_2_TDSZ_GET(x)      (((x) >> 17) & 0x1F)
+#define XHCI_TRB_2_TDSZ_SET(x)      (((x) & 0x1F) << 17)
+#define XHCI_TRB_2_REM_GET(x)       ((x) & 0xFFFFFF)
+#define XHCI_TRB_2_REM_SET(x)       ((x) & 0xFFFFFF)
+#define XHCI_TRB_2_BYTES_GET(x)     ((x) & 0x1FFFF)
+#define XHCI_TRB_2_BYTES_SET(x)     ((x) & 0x1FFFF)
+#define XHCI_TRB_2_IRQ_GET(x)       (((x) >> 22) & 0x3FF)
+#define XHCI_TRB_2_IRQ_SET(x)       (((x) & 0x3FF) << 22)
+#define XHCI_TRB_2_STREAM_GET(x)    (((x) >> 16) & 0xFFFF)
+#define XHCI_TRB_2_STREAM_SET(x)    (((x) & 0xFFFF) << 16)
 
-}; 
+    volatile uint32_t   dwTrb3;
+#define XHCI_TRB_3_TYPE_GET(x)      (((x) >> 10) & 0x3F)
+#define XHCI_TRB_3_TYPE_SET(x)      (((x) & 0x3F) << 10)
+#define XHCI_TRB_3_CYCLE_BIT        (1U << 0)
+#define XHCI_TRB_3_TC_BIT       (1U << 1)   /* command ring only */
+#define XHCI_TRB_3_ENT_BIT      (1U << 1)   /* transfer ring only */
+#define XHCI_TRB_3_ISP_BIT      (1U << 2)
+#define XHCI_TRB_3_NSNOOP_BIT       (1U << 3)
+#define XHCI_TRB_3_CHAIN_BIT        (1U << 4)
+#define XHCI_TRB_3_IOC_BIT      (1U << 5)
+#define XHCI_TRB_3_IDT_BIT      (1U << 6)
+#define XHCI_TRB_3_TBC_GET(x)       (((x) >> 7) & 3)
+#define XHCI_TRB_3_TBC_SET(x)       (((x) & 3) << 7)
+#define XHCI_TRB_3_BEI_BIT      (1U << 9)
+#define XHCI_TRB_3_DCEP_BIT     (1U << 9)
+#define XHCI_TRB_3_PRSV_BIT     (1U << 9)
+#define XHCI_TRB_3_BSR_BIT      (1U << 9)
+#define XHCI_TRB_3_TRT_MASK     (3U << 16)
+#define XHCI_TRB_3_TRT_NONE     (0U << 16)
+#define XHCI_TRB_3_TRT_OUT      (2U << 16)
+#define XHCI_TRB_3_TRT_IN       (3U << 16)
+#define XHCI_TRB_3_DIR_IN       (1U << 16)
+#define XHCI_TRB_3_TLBPC_GET(x)     (((x) >> 16) & 0xF)
+#define XHCI_TRB_3_TLBPC_SET(x)     (((x) & 0xF) << 16)
+#define XHCI_TRB_3_EP_GET(x)        (((x) >> 16) & 0x1F)
+#define XHCI_TRB_3_EP_SET(x)        (((x) & 0x1F) << 16)
+#define XHCI_TRB_3_FRID_GET(x)      (((x) >> 20) & 0x7FF)
+#define XHCI_TRB_3_FRID_SET(x)      (((x) & 0x7FF) << 20)
+#define XHCI_TRB_3_ISO_SIA_BIT      (1U << 31)
+#define XHCI_TRB_3_SUSP_EP_BIT      (1U << 23)
+#define XHCI_TRB_3_SLOT_GET(x)      (((x) >> 24) & 0xFF)
+#define XHCI_TRB_3_SLOT_SET(x)      (((x) & 0xFF) << 24)
+
+/* Commands */
+#define XHCI_TRB_TYPE_RESERVED      0x00
+#define XHCI_TRB_TYPE_NORMAL        0x01
+#define XHCI_TRB_TYPE_SETUP_STAGE   0x02
+#define XHCI_TRB_TYPE_DATA_STAGE    0x03
+#define XHCI_TRB_TYPE_STATUS_STAGE  0x04
+#define XHCI_TRB_TYPE_ISOCH     0x05
+#define XHCI_TRB_TYPE_LINK      0x06
+#define XHCI_TRB_TYPE_EVENT_DATA    0x07
+#define XHCI_TRB_TYPE_NOOP      0x08
+#define XHCI_TRB_TYPE_ENABLE_SLOT   0x09
+#define XHCI_TRB_TYPE_DISABLE_SLOT  0x0A
+#define XHCI_TRB_TYPE_ADDRESS_DEVICE    0x0B
+#define XHCI_TRB_TYPE_CONFIGURE_EP  0x0C
+#define XHCI_TRB_TYPE_EVALUATE_CTX  0x0D
+#define XHCI_TRB_TYPE_RESET_EP      0x0E
+#define XHCI_TRB_TYPE_STOP_EP       0x0F
+#define XHCI_TRB_TYPE_SET_TR_DEQUEUE    0x10
+#define XHCI_TRB_TYPE_RESET_DEVICE  0x11
+#define XHCI_TRB_TYPE_FORCE_EVENT   0x12
+#define XHCI_TRB_TYPE_NEGOTIATE_BW  0x13
+#define XHCI_TRB_TYPE_SET_LATENCY_TOL   0x14
+#define XHCI_TRB_TYPE_GET_PORT_BW   0x15
+#define XHCI_TRB_TYPE_FORCE_HEADER  0x16
+#define XHCI_TRB_TYPE_NOOP_CMD      0x17
+
+/* Events */
+#define XHCI_TRB_EVENT_TRANSFER     0x20
+#define XHCI_TRB_EVENT_CMD_COMPLETE 0x21
+#define XHCI_TRB_EVENT_PORT_STS_CHANGE  0x22
+#define XHCI_TRB_EVENT_BW_REQUEST       0x23
+#define XHCI_TRB_EVENT_DOORBELL     0x24
+#define XHCI_TRB_EVENT_HOST_CTRL    0x25
+#define XHCI_TRB_EVENT_DEVICE_NOTIFY    0x26
+#define XHCI_TRB_EVENT_MFINDEX_WRAP 0x27
+
+/* Error codes */
+#define XHCI_TRB_ERROR_INVALID      0x00
+#define XHCI_TRB_ERROR_SUCCESS      0x01
+#define XHCI_TRB_ERROR_DATA_BUF     0x02
+#define XHCI_TRB_ERROR_BABBLE       0x03
+#define XHCI_TRB_ERROR_XACT     0x04
+#define XHCI_TRB_ERROR_TRB      0x05
+#define XHCI_TRB_ERROR_STALL        0x06
+#define XHCI_TRB_ERROR_RESOURCE     0x07
+#define XHCI_TRB_ERROR_BANDWIDTH    0x08
+#define XHCI_TRB_ERROR_NO_SLOTS     0x09
+#define XHCI_TRB_ERROR_STREAM_TYPE  0x0A
+#define XHCI_TRB_ERROR_SLOT_NOT_ON  0x0B
+#define XHCI_TRB_ERROR_ENDP_NOT_ON  0x0C
+#define XHCI_TRB_ERROR_SHORT_PKT    0x0D
+#define XHCI_TRB_ERROR_RING_UNDERRUN    0x0E
+#define XHCI_TRB_ERROR_RING_OVERRUN 0x0F
+#define XHCI_TRB_ERROR_VF_RING_FULL 0x10
+#define XHCI_TRB_ERROR_PARAMETER    0x11
+#define XHCI_TRB_ERROR_BW_OVERRUN   0x12
+#define XHCI_TRB_ERROR_CONTEXT_STATE    0x13
+#define XHCI_TRB_ERROR_NO_PING_RESP 0x14
+#define XHCI_TRB_ERROR_EV_RING_FULL 0x15
+#define XHCI_TRB_ERROR_INCOMPAT_DEV 0x16
+#define XHCI_TRB_ERROR_MISSED_SERVICE   0x17
+#define XHCI_TRB_ERROR_CMD_RING_STOP    0x18
+#define XHCI_TRB_ERROR_CMD_ABORTED  0x19
+#define XHCI_TRB_ERROR_STOPPED      0x1A
+#define XHCI_TRB_ERROR_LENGTH       0x1B
+#define XHCI_TRB_ERROR_BAD_MELAT    0x1D
+#define XHCI_TRB_ERROR_ISOC_OVERRUN 0x1F
+#define XHCI_TRB_ERROR_EVENT_LOST   0x20
+#define XHCI_TRB_ERROR_UNDEFINED    0x21
+#define XHCI_TRB_ERROR_INVALID_SID  0x22
+#define XHCI_TRB_ERROR_SEC_BW       0x23
+#define XHCI_TRB_ERROR_SPLIT_XACT   0x24
+};
 
 struct Td {
 
@@ -201,6 +324,16 @@ typedef struct Packed16B packed16B;
 /*********************************************
  * xHCI specific functions
  *********************************************/
+/** @brief These functions parse out the context structures and pack the data
+ *  into a more compact 32B struct for hardware use
+ *  
+ *  @param[in] slot The input slot context
+ *  @param[in] ep The input endpoint context
+ *  @param[out] packed The 32B packed representation of the contexts
+ *  
+ *  @fault never
+ *  @return void
+ **/
 static inline void
 pack_slot_ctx(packed32B *packed, slotCtx *slot) {
     uint word0 = (slots->ctxEntry & 0x1F) << 27; 
@@ -260,6 +393,62 @@ pack_ep_ctx(packed32B *packed, epCtx *ep) {
     return; 
 }
 
+/** @brief These functions define the default setups for a slot/ep context 
+ *  
+ *  @param[in/out] slot_ctx The slot context to configure
+ *  @param[in/out] ep_ctx   The ep context to configure
+ *  
+ *  @fault never
+ *  @return void
+ **/
+static inline void 
+setup_default_slot_ctx(slotCtx *slot_ctx) {
+    // now configure the slot and endpoint; then pack into 32B structs
+    slot_ctx->routeStr  = 0; 
+    slot_ctx->speed     = 0; 
+    slot_ctx->mmt       = 0; 
+    slot_ctx->hub       = 0; 
+    slot_ctx->ctxEntry  = 0; 
+
+    slot_ctx->maxExit   = 0; 
+    slot_ctx->rootPort  = 0; 
+    slot_ctx->numPort   = 0; 
+    
+    slot_ctx->intrTarget = 0; 
+    
+    slot_ctx->devAddr   = 0; 
+    slot_ctx->slotState = 0; 
+    return;
+}
+
+static inline void 
+setup_default_ep_ctx(epCtx *ep_ctx) {
+    // now configure the slot and endpoint; then pack into 32B structs
+    slot_ctx->routeStr  = 0; 
+    slot_ctx->speed     = 0; 
+    slot_ctx->mmt       = 0; 
+    slot_ctx->hub       = 0; 
+    slot_ctx->ctxEntry  = 0; 
+
+    slot_ctx->maxExit   = 0; 
+    slot_ctx->rootPort  = 0; 
+    slot_ctx->numPort   = 0; 
+    
+    slot_ctx->intrTarget = 0; 
+    
+    slot_ctx->devAddr   = 0; 
+    slot_ctx->slotState = 0; 
+    return;
+}
+
+static inline void
+setup_default_ep_ctx(epCtx *ep_ctx) {
+    ep_ctx->epstate       = 0;
+    ep_ctx->hostInitDis   = 0;
+    ep_ctx->trDeqPtrLo    = 0;
+    ep_ctx->trDeqPtrHi    = 0;
+    return; 
+}
 
 /** @brief This function will write to one of the registers
  *  @param TODO
@@ -285,41 +474,41 @@ static Ctlr* ctlrs[Nhcis];
 static char*
 seprintep(char *s, char *e, Ep *ep)
 {
-    Ctlio *cio;
-    Qio *io;
-    Isoio *iso;
-    Ctlr *ctlr;
-
-    ctlr = ep->hp->aux;
-    ilock(ctlr);
-    
-    if(ep->aux == nil){
-        *s = 0;
-        iunlock(ctlr);
-        return s;
-    }
-    
-    switch(ep->ttype){
-        case Tctl:
-            cio = ep->aux;
-            s = seprint(s,e,"cio %#p qh %#p id %#x tog %#x tok %#x err %s\n", cio, cio->qh, cio->usbid, cio->toggle, cio->tok, cio->err);
-            break;
-        case Tbulk:
-        case Tintr:
-            io = ep->aux;
-            if(ep->mode != OWRITE)
-                s = seprint(s,e,"r: qh %#p id %#x tog %#x tok %#x err %s\n", io[OREAD].qh, io[OREAD].usbid, io[OREAD].toggle, io[OREAD].tok, io[OREAD].err);
-            if(ep->mode != OREAD)
-                s = seprint(s,e,"w: qh %#p id %#x tog %#x tok %#x err %s\n",io[OWRITE].qh, io[OWRITE].usbid, io[OWRITE].toggle, io[OWRITE].tok, io[OWRITE].err);
-            break;
-        case Tiso:
-            iso = ep->aux;
-            s = seprint(s,e,"iso %#p id %#x tok %#x tdu %#p tdi %#p err %s\n", iso, iso->usbid, iso->tok, iso->tdu, iso->tdi, iso->err);
-            break;
-    }
-    
-    iunlock(ctlr);
-    return s;
+//    Ctlio *cio;
+//    Qio *io;
+//    Isoio *iso;
+//    Ctlr *ctlr;
+//
+//    ctlr = ep->hp->aux;
+//    ilock(ctlr);
+//    
+//    if(ep->aux == nil){
+//        *s = 0;
+//        iunlock(ctlr);
+//        return s;
+//    }
+//    
+//    switch(ep->ttype){
+//        case Tctl:
+//            cio = ep->aux;
+//            s = seprint(s,e,"cio %#p qh %#p id %#x tog %#x tok %#x err %s\n", cio, cio->qh, cio->usbid, cio->toggle, cio->tok, cio->err);
+//            break;
+//        case Tbulk:
+//        case Tintr:
+//            io = ep->aux;
+//            if(ep->mode != OWRITE)
+//                s = seprint(s,e,"r: qh %#p id %#x tog %#x tok %#x err %s\n", io[OREAD].qh, io[OREAD].usbid, io[OREAD].toggle, io[OREAD].tok, io[OREAD].err);
+//            if(ep->mode != OREAD)
+//                s = seprint(s,e,"w: qh %#p id %#x tog %#x tok %#x err %s\n",io[OWRITE].qh, io[OWRITE].usbid, io[OWRITE].toggle, io[OWRITE].tok, io[OWRITE].err);
+//            break;
+//        case Tiso:
+//            iso = ep->aux;
+//            s = seprint(s,e,"iso %#p id %#x tok %#x tdu %#p tdi %#p err %s\n", iso, iso->usbid, iso->tok, iso->tdu, iso->tdi, iso->err);
+//            break;
+//    }
+//    
+//    iunlock(ctlr);
+//    return s;
 }
 
 static void
@@ -483,53 +672,53 @@ scanpci(void)
 static void
 uhcimeminit(Ctlr *ctlr)
 {
-    // TODO
     // allocate memory for slot (context + MaxSlotsEn) * Packed32B
     slotCtx *slot_ctx = xspanalloc(sizeof(struct SlotCtx), _64B, _64B);
     packed32B *packed_slot = xspanalloc(sizeof(struct Packed32B), _64B, _64B);
     
-    epCtx *ep_ctx[XHCI_MAXSLOTSEN]; 
-    packed32B *packed_ep[XHCI_MAXSLOTSEN]; 
-    for(int i = 0; i < XHCI_MAXSLOTSEN; i++) {
+    // for ep contexts
+    uint num_ep = XHCI_MAXSLOTSEN * 2; // FIXME == 4 for now
+    epCtx *ep_ctx[num_ep + 1];  // +1 for ep0 base dir
+    packed32B *packed_ep[num_ep + 1]; 
+    for(int i = 0; i < (num_ep + 1); i++) {
         ep_ctx[i] = (epCtx *)xspanalloc(sizeof(struct EpCtx), _64B, _64B);
         packed_ep[i] = (packed32B *)xspanalloc(sizeof(struct Packed32B), _64B, _64B);
     }
     
-    // now configure the slot and endpoint; then pack into 32B structs
-    slot_ctx->routeStr  = 0; 
-    slot_ctx->speed     = 0; 
-    slot_ctx->mmt       = 0; 
-    slot_ctx->hub       = 0; 
-    slot_ctx->ctxEntry  = 0; 
-
-    slot_ctx->maxExit   = 0; 
-    slot_ctx->rootPort  = 0; 
-    slot_ctx->numPort   = 0; 
-    
-    slot_ctx->intrTarget = 0; 
-    
-    slot_ctx->devAddr   = 0; 
-    slot_ctx->slotState = 0; 
+    // configure and pack slot context
+    setup_default_slot_ctx(slot_ctx); 
     pack_slot_ctx(packed_slot, slot_ctx);
     
-    // now manually configure 2 ep
-    packed_ep[0]->epstate       = 0;
-    packed_ep[0]->hostInitDis   = 0;
-    packed_ep[0]->trDeqPtrLo    = 0;
-    packed_ep[0]->trDeqPtrHi    = 0;
+
+    // configure and pack ep context
+    setup_default_ep_ctx(ep_ctx[0]); 
+    // mark ep in/out 
     pack_ep_ctx(packed_ep[0], ep_ctx[0]);
+
+    // ep1 OUT
+    setup_default_ep_ctx(ep_ctx[1]); 
+    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
     
-    packed_ep[1]->epstate       = 0;
-    packed_ep[1]->hostInitDis   = 0;
-    packed_ep[1]->trDeqPtrLo    = 0;
-    packed_ep[1]->trDeqPtrHi    = 0;
+    // ep1 IN
+    setup_default_ep_ctx(ep_ctx[1]); 
+    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+    
+    // ep2 OUT
+    setup_default_ep_ctx(ep_ctx[1]); 
+    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+    
+    // ep2 IN
+    setup_default_ep_ctx(ep_ctx[1]); 
     pack_ep_ctx(packed_ep[1], ep_ctx[1]);
 
     // allocate the DCBAAP
-    uint *dcbaap = (uint *)xspanalloc((sizeof(void *) * (1+XHCI_MAXSLOTSEN)), _64B, _64B); 
+    uint *dcbaap = (uint *)xspanalloc((sizeof(void *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, _64B); 
     dcbaap[0] = packed_slot;
-    dcbaap[1] = &(packed_ep[0]);
-    dcbaap[2] = &(packed_ep[1]);
+    dcbaap[1] = packed_ep[0];
+    dcbaap[2] = packed_ep[1];
+    dcbaap[3] = packed_ep[2];
+    dcbaap[4] = packed_ep[3];
+    dcbaap[5] = packed_ep[4];
     ctlr->devctx_bar = dxbaap; 
     
     
@@ -648,11 +837,14 @@ reset(Hci *hp)
     hp->nports = 2;/* default */
 
     // this call resets the chip and wait until regs are writable
+    REPORT("going to send hardware reset"); 
     uhcireset(ctlr);
     // this call initializes data structures
+    REPORT("going to init memory structure"); 
     uhcimeminit(ctlr);
 
     // now write all the registers
+    REPORT("configuring internal registers"); 
     // MAX_SLOT_EN == 2
     xhcireg_wr(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN, 2);
     // DCBAAP_LO = ctlr->devctx_bar
@@ -669,6 +861,7 @@ reset(Hci *hp)
     /*
      * Linkage to the generic HCI driver.
      */
+    REPORT("linking to generic HCI driver"); 
     hp->init = init;
     hp->dump = dump;
     hp->interrupt = interrupt;
