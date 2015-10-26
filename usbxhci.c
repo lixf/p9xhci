@@ -138,8 +138,8 @@ struct Trb {
 #define XHCI_TRB_2_STREAM_GET(x)    (((x) >> 16) & 0xFFFF)
 #define XHCI_TRB_2_STREAM_SET(x)    (((x) & 0xFFFF) << 16)
 
-    	//volatile uint32_t   dwTrb3;
-	uint dwTrb3;
+    //volatile uint32_t   dwTrb3;
+    uint dwTrb3;
 #define XHCI_TRB_3_TYPE_GET(x)      (((x) >> 10) & 0x3F)
 #define XHCI_TRB_3_TYPE_SET(x)      (((x) & 0x3F) << 10)
 #define XHCI_TRB_3_CYCLE_BIT        (1U << 0)
