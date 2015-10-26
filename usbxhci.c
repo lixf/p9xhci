@@ -243,7 +243,7 @@ struct Trb {
 };
 
 struct Td {
-
+    int id;
 }; 
 
 struct SlotCtx {
@@ -335,7 +335,7 @@ typedef struct Packed16B packed16B;
  *  @return void
  **/
 static inline void
-pack_slot_ctx(packed32B *packed, slotCtx *slot) {
+pack_slot_ctx(packed32B *packed, slotCtx *slots) {
     uint word0 = (slots->ctxEntry & 0x1F) << 27; 
     word0 = word0 | ((slots->hub & 0x1) << 26);
     word0 = word0 | ((slots->mmt & 0x1) << 25);
@@ -403,26 +403,6 @@ pack_ep_ctx(packed32B *packed, epCtx *ep) {
  **/
 static inline void 
 setup_default_slot_ctx(slotCtx *slot_ctx) {
-    // now configure the slot and endpoint; then pack into 32B structs
-    slot_ctx->routeStr  = 0; 
-    slot_ctx->speed     = 0; 
-    slot_ctx->mmt       = 0; 
-    slot_ctx->hub       = 0; 
-    slot_ctx->ctxEntry  = 0; 
-
-    slot_ctx->maxExit   = 0; 
-    slot_ctx->rootPort  = 0; 
-    slot_ctx->numPort   = 0; 
-    
-    slot_ctx->intrTarget = 0; 
-    
-    slot_ctx->devAddr   = 0; 
-    slot_ctx->slotState = 0; 
-    return;
-}
-
-static inline void 
-setup_default_ep_ctx(epCtx *ep_ctx) {
     // now configure the slot and endpoint; then pack into 32B structs
     slot_ctx->routeStr  = 0; 
     slot_ctx->speed     = 0; 
