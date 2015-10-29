@@ -520,6 +520,20 @@ dump(Hci *hp)
 {
 }
 
+#define MIN(x, y) ((x) > (y)) ? (y) : (x)
+
+static void 
+printmem(uint start, uint size) {
+    uint *arr = (uint *) start;
+    print("Memory Dump starting at 0x%x, length 0x%x bytes\n", start, size);
+    for(uint i=0; i<size; i+=4) {
+        print("[%d:%d] = 0x%x 0x%x 0x%x 0x%x\n", i, MIN(i+3,size-1), 
+        arr[i], (i+1 < size) ? arr[i+1] : 0, (i+2 < size) ? arr[i+2] : 0, 
+        (i+3 < size) ? arr[i+3] : 0); 
+    }
+}
+
+
 
 /**************************************************
  * Top level interface functions -- functionality * 
@@ -846,8 +860,9 @@ reset(Hci *hp)
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
     print("CAP base 0x%x OPER base 0x%x\n", ctlr->port, ctlr->oper);
     
+    // print all the capability registers
+    printmem(ctlr->port, 0xff); 
 
-    
     // this call resets the chip and wait until regs are writable
     print("going to send hardware reset\n"); 
     xhcireset(ctlr);
