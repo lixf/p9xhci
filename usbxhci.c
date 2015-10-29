@@ -460,7 +460,7 @@ xhcireg_wr(Ctlr *ctlr, uint offset, uint mask, uint new)
     //    p = ctlr->port; 
 
     uint read = INL(offset); 
-    print("writing %x to offset %x", ((read & ~mask) | new), offset);
+    print("writing %08x to offset %08x", ((read & ~mask) | new), offset);
     OUTL(offset, ((read & ~mask) | new));
 }
 
@@ -525,11 +525,10 @@ dump(Hci *hp)
 static void 
 printmem(uint start, uint size) {
     uint *arr = (uint *) start;
-    print("Memory Dump starting at 0x%x, length 0x%x words\n", start, size);
-    for(uint i=0; i<size; i+=4) {
-        print("[%d:%d] = 0x%x 0x%x 0x%x 0x%x\n", i, MIN(i+3,size-1), 
-        arr[i], (i+1 < size) ? arr[i+1] : 0, (i+2 < size) ? arr[i+2] : 0, 
-        (i+3 < size) ? arr[i+3] : 0); 
+    print("Memory Dump starting at 0x%08x, length 0x%08x words\n", start, size);
+    for(uint i=0; i<size; i++) {
+        print("mem[%p]: 0x%08x\n", arr, inl(arr));
+        arr++;
     }
 }
 
@@ -858,7 +857,7 @@ reset(Hci *hp)
     ctlr->oper = (uint)ctlr->port + caplength + 1; 
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
-    print("CAP base 0x%x OPER base 0x%x\n", ctlr->port, ctlr->oper);
+    print("CAP base 0x%08x OPER base 0x%08x\n", ctlr->port, ctlr->oper);
     
     // print all the capability registers
     printmem(ctlr->port, (0xff/4)); 
@@ -879,11 +878,11 @@ reset(Hci *hp)
 
     // DCBAAP_LO = ctlr->devctx_bar
     xhcireg_wr(ctlr, DCBAAP_OFF, DCBAAP_LO, ctlr->devctx_bar);
-    print("readback: DCBAAP_LO: 0x%x should be 0x%x", xhcireg_rd(ctlr, DCBAAP_OFF, DCBAAP_LO), ctlr->devctx_bar);
+    print("readback: DCBAAP_LO: 0x%08x should be 0x%08x", xhcireg_rd(ctlr, DCBAAP_OFF, DCBAAP_LO), ctlr->devctx_bar);
     
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + DCBAAP_HI_OFF), DCBAAP_HI, ZERO);
-    print("readback: DCBAAP_HI: 0x%x should be 0", xhcireg_rd(ctlr, (DCBAAP_OFF+DCBAAP_HI_OFF), DCBAAP_HI));
+    print("readback: DCBAAP_HI: 0x%08x should be 0", xhcireg_rd(ctlr, (DCBAAP_OFF+DCBAAP_HI_OFF), DCBAAP_HI));
     
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
