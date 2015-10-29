@@ -31,13 +31,18 @@ int debug = 0;
 #define XHCI_MAXSLOTSEN 2
 #define _64B 64
 
+#define XHCI_CAPA 0
+#define XHCI_OPER 1
+#define XHCI_RUNT 2
+#define XHCI_DOOR 3
+
 /*************************************************
  * Controls for reading/writing of the registers *
  *************************************************/
 /* register offsets (from base address of Capability Register) */
 /* operational register */
 // this definitely does not work if we have > 1 controller
-#define OPREG_OFF caplength // TODO will this work?
+#define OPREG_OFF (caplength+1) // TODO will this work?
 #define CONFIG_OFF (OPREG_OFF + 0x38)
 #define USBSTS_OFF (OPREG_OFF + 0x04)
 #define DCBAAP_OFF (OPREG_OFF + 0x30)
@@ -440,7 +445,21 @@ setup_default_ep_ctx(epCtx *ep_ctx) {
 static void
 xhcireg_wr(Ctlr *ctlr, uint offset, uint mask, uint new) 
 {
+    // needed for > 1 xhc's but might be too slow
+    //uint p; 
+    //switch what {
+    //  case XHCI_CAPA: 
+    //    p = ctlr->port; 
+    //    break;
+    //  case XHCI_CAPA: 
+    //    p = ctlr->port; 
+    //    break; 
+    //  default: 
+    //    print("write not implemented")
+    //    p = ctlr->port; 
+
     uint read = INL(offset); 
+    print("writing %x to offset %x", ((read & ~mask) | new), offset);
     OUTL(offset, ((read & ~mask) | new));
 }
 
@@ -718,12 +737,6 @@ xhcireset(Ctlr *ctlr)
     // TODO why do I need this lock? 
     ilock(ctlr);
     
-    // read some stuff and set global values
-    // FIXME not work with > 1 controller
-    caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
-    ctlr->caplength = caplength; 
-    ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT);
-    
     print("xhci %#ux reset\n", ctlr->port);
     
     // do I need to do this? 
@@ -741,9 +754,6 @@ xhcireset(Ctlr *ctlr)
 
     iunlock(ctlr);
      
-    print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
-    
-
     return;
 }
 
@@ -825,6 +835,18 @@ reset(Hci *hp)
     // TODO change this?
     hp->nports = 2;/* default */
 
+    // read some stuff and set global values
+    // FIXME not work with > 1 controller
+    caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
+    ctlr->caplength = caplength; 
+    ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
+    ctlr->oper = ctlr->port + caplength + 1; 
+
+    print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
+    print("CAP base 0x%x OPER base 0x%x\n", ctlr->port, ctlr->oper);
+    
+
+    
     // this call resets the chip and wait until regs are writable
     print("going to send hardware reset\n"); 
     xhcireset(ctlr);
