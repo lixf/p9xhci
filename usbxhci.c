@@ -616,7 +616,7 @@ scanpci(void)
             print("xhci: %#x %#x: failed to map registers\n", p->vid, p->did);
             continue;
         } else {
-            print("xhci: %#x %#x: successfully mapped registers\n", p->vid, p->did);
+            print("xhci: vid:%#x did:%#x: successfully mapped registers at %d\n", p->vid, p->did, io);
         }
   
         // ioalloc(int port, int size, int align, char *tag) -- actually allocate this memory on host side
@@ -630,7 +630,7 @@ scanpci(void)
             continue;
         }
 
-        dprint("xhci: %#x %#x: port %#ux size %#x irq %d\n", p->vid, p->did, io, p->mem[4].size, p->intl);
+        print("xhci: %#x %#x: port %#ux size %#x irq %d\n", p->vid, p->did, io, p->mem[4].size, p->intl);
 
         ctlr = malloc(sizeof(Ctlr));
         if (ctlr == nil)
@@ -717,7 +717,7 @@ xhcireset(Ctlr *ctlr)
     int i; 
     // TODO why do I need this lock? 
     ilock(ctlr);
-    dprint("xhci %#ux reset\n", ctlr->port);
+    print("xhci %#ux reset\n", ctlr->port);
     
     // do I need to do this? 
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RESET, USBCMD_RESET_RESET);/* global reset */
@@ -727,7 +727,7 @@ xhcireset(Ctlr *ctlr)
         // WAIT until timeout
         delay(1);
         if ((i = i + 1) == 100) {
-            print("xhci controller reset timed out\n");
+            print("xhci controller reset timed out, USBSTS_CNR = %d\n", xhcireg_rd(ctlr, USBSTS_OFF, USBSTS_CNR));
             break; 
         }
     }
@@ -739,6 +739,9 @@ xhcireset(Ctlr *ctlr)
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT);
     
     iunlock(ctlr);
+     
+    print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
+    
 
     return;
 }
@@ -822,22 +825,31 @@ reset(Hci *hp)
     hp->nports = 2;/* default */
 
     // this call resets the chip and wait until regs are writable
-    //REPORT("going to send hardware reset"); 
-    xhcireset(ctlr);
+    print("going to send hardware reset\n"); 
+    uhcireset(ctlr);
     // this call initializes data structures
-    //REPORT("going to init memory structure"); 
-    xhcimeminit(ctlr);
+    print("going to init memory structure\n"); 
+    uhcimeminit(ctlr);
 
     // now write all the registers
-    //REPORT("configuring internal registers"); 
+    print("configuring internal registers\n"); 
+    
     // MAX_SLOT_EN == 2
     xhcireg_wr(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN, 2);
+    print("readback: MAX_SLOT_EN: %d should be 2", xhcireg_rd(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN));
+
     // DCBAAP_LO = ctlr->devctx_bar
     xhcireg_wr(ctlr, DCBAAP_OFF, DCBAAP_LO, ctlr->devctx_bar);
+    print("readback: DCBAAP_LO: 0x%x should be 0x%x", xhcireg_rd(ctlr, DCBAAP_OFF, DCBAAP_LO), ctlr->devctx_bar);
+    
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + DCBAAP_HI_OFF), DCBAAP_HI, ZERO);
+    print("readback: DCBAAP_HI: 0x%x should be 0", xhcireg_rd(ctlr, (DCBAAP_OFF+DCBAAP_HI_OFF), DCBAAP_HI));
+    
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
+    print("TODO: not reading back cmdring addr for now cuz they are 0's\n")
+
     // CRCR_CMDRING_HI = 0
     xhcireg_wr(ctlr, (CRCR_OFF + CRCR_CMDRING_HI_OFF), CRCR_CMDRING_HI, ZERO);
 
@@ -846,7 +858,7 @@ reset(Hci *hp)
     /*
      * Linkage to the generic HCI driver.
      */
-    //REPORT("linking to generic HCI driver"); 
+    print("linking to generic HCI driver\n"); 
     hp->init = init;
     hp->dump = dump;
     hp->interrupt = interrupt;
@@ -863,13 +875,13 @@ reset(Hci *hp)
     hp->type = "xhci";
 
     // test the controller is alive and running by reading some values
-    while(1) {
-        delay(10);
-        int new;
-        if ((new = port_new_attach(ctlr)) != -1) {
-            print("new device attached at %d\n", new);
-        }
-    }
+    //while(1) {
+    //    delay(10);
+    //    int new;
+    //    if ((new = port_new_attach(ctlr)) != -1) {
+    //        print("new device attached at %d\n", new);
+    //    }
+    //}
     // TODO remove the test code
 
 
