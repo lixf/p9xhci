@@ -112,6 +112,7 @@ struct Ctlr {
     Pcidev *pcidev; 
     int active; 
     int port; 
+    uint oper;
     // throw away the rest for now
     // because XHCI has no QH or ISO support for now
     // read from hw
@@ -840,7 +841,7 @@ reset(Hci *hp)
     caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
     ctlr->caplength = caplength; 
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
-    ctlr->oper = ctlr->port + caplength + 1; 
+    ctlr->oper = (uint)ctlr->port + caplength + 1; 
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
     print("CAP base 0x%x OPER base 0x%x\n", ctlr->port, ctlr->oper);
