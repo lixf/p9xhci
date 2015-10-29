@@ -79,7 +79,7 @@ int debug = 0;
 /* operational register */
 #define USBSTS_CNR_READY 0 
 #define USBCMD_RS_RUN 1 
-#define USBCMD_RESET_RESET 1 
+#define USBCMD_RESET_RESET 2 
 #define PORTSC_CCS_CONNECT 1
 
 /* capability register */
@@ -630,7 +630,7 @@ scanpci(void)
             continue;
         }
 
-        print("xhci: %#x %#x: port %#ux size %#x irq %d\n", p->vid, p->did, io, p->mem[4].size, p->intl);
+        print("xhci: %#x %#x: port %#ux size %#x irq %d\n", p->vid, p->did, io, p->mem[XHCI_PCI_BAR].size, p->intl);
 
         ctlr = malloc(sizeof(Ctlr));
         if (ctlr == nil)
@@ -717,6 +717,13 @@ xhcireset(Ctlr *ctlr)
     int i; 
     // TODO why do I need this lock? 
     ilock(ctlr);
+    
+    // read some stuff and set global values
+    // FIXME not work with > 1 controller
+    caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
+    ctlr->caplength = caplength; 
+    ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT);
+    
     print("xhci %#ux reset\n", ctlr->port);
     
     // do I need to do this? 
@@ -732,12 +739,6 @@ xhcireset(Ctlr *ctlr)
         }
     }
 
-    // read some stuff and set global values
-    // FIXME not work with > 1 controller
-    caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
-    ctlr->caplength = caplength; 
-    ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT);
-    
     iunlock(ctlr);
      
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
@@ -826,10 +827,10 @@ reset(Hci *hp)
 
     // this call resets the chip and wait until regs are writable
     print("going to send hardware reset\n"); 
-    uhcireset(ctlr);
+    xhcireset(ctlr);
     // this call initializes data structures
     print("going to init memory structure\n"); 
-    uhcimeminit(ctlr);
+    xhcimeminit(ctlr);
 
     // now write all the registers
     print("configuring internal registers\n"); 
@@ -848,7 +849,7 @@ reset(Hci *hp)
     
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
-    print("TODO: not reading back cmdring addr for now cuz they are 0's\n")
+    print("TODO: not reading back cmdring addr for now cuz they are 0's\n");
 
     // CRCR_CMDRING_HI = 0
     xhcireg_wr(ctlr, (CRCR_OFF + CRCR_CMDRING_HI_OFF), CRCR_CMDRING_HI, ZERO);
