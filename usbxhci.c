@@ -595,6 +595,7 @@ scanpci(void)
         }
   
         ctlr->xhci = vmap(bar, p->mem[XHCI_PCI_BAR].size);
+        print("vmap returned\n");
         if (ctlr->xhci == nil) {
             panic("xhci: cannot map MMIO from PCI");
         }
