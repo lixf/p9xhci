@@ -771,7 +771,7 @@ reset(Hci *hp)
     for(i = 0; i < Nhcis && ctlrs[i] != nil; i++){
         ctlr = ctlrs[i];
         if(ctlr->active == 0) 
-        if(hp->port == 0 || hp->port == ctlr->port){
+        if(hp->port == 0 || hp->port == (uint)ctlr->xhci){
             ctlr->active = 1;
             break;
         }
@@ -798,7 +798,7 @@ reset(Hci *hp)
     ctlr->oper = (uint)ctlr->xhci + caplength + 1; 
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
-    print("CAP base 0x%#xx OPER base 0x%#ux\n", ctlr->port, ctlr->oper);
+    print("CAP base 0x%#ux OPER base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper);
     
     // print all the capability registers
     //printmem(ctlr->port, (0x20/4)); 
