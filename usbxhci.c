@@ -111,7 +111,7 @@ struct Ctlr {
     QLock portlck; 
     Pcidev *pcidev; 
     int active; 
-    int port; 
+    void *xhci; // MMIO pointer
     uint oper;
     // throw away the rest for now
     // because XHCI has no QH or ISO support for now
@@ -446,28 +446,18 @@ setup_default_ep_ctx(epCtx *ep_ctx) {
 static void
 xhcireg_wr(Ctlr *ctlr, uint offset, uint mask, uint new) 
 {
-    // needed for > 1 xhc's but might be too slow
-    //uint p; 
-    //switch what {
-    //  case XHCI_CAPA: 
-    //    p = ctlr->port; 
-    //    break;
-    //  case XHCI_CAPA: 
-    //    p = ctlr->port; 
-    //    break; 
-    //  default: 
-    //    print("write not implemented")
-    //    p = ctlr->port; 
-
-    uint read = INL(offset); 
+    uint addr = ((uint) ctlr->xhci) + offset; 
+    uint read = *((uint *) addr);
     print("writing %#ux to offset %#ux", ((read & ~mask) | new), offset);
-    OUTL(offset, ((read & ~mask) | new));
+    *((uint *) addr) = ((read & ~mask) | new);
+    //OUTL(offset, ((read & ~mask) | new));
 }
 
 static uint
 xhcireg_rd(Ctlr *ctlr, uint offset, uint mask) 
 {
-    return (INL(offset) & mask); 
+    uint addr = ((uint) ctlr->xhci) + offset; 
+    return (*((uint *) addr) & mask); 
 }
 
 static Ctlr* ctlrs[Nhcis];
@@ -478,60 +468,12 @@ static Ctlr* ctlrs[Nhcis];
 static char*
 seprintep(char *s, char *e, Ep *ep)
 {
-//    Ctlio *cio;
-//    Qio *io;
-//    Isoio *iso;
-//    Ctlr *ctlr;
-//
-//    ctlr = ep->hp->aux;
-//    ilock(ctlr);
-//    
-//    if(ep->aux == nil){
-//        *s = 0;
-//        iunlock(ctlr);
-//        return s;
-//    }
-//    
-//    switch(ep->ttype){
-//        case Tctl:
-//            cio = ep->aux;
-//            s = seprint(s,e,"cio %#p qh %#p id %#x tog %#x tok %#x err %s\n", cio, cio->qh, cio->usbid, cio->toggle, cio->tok, cio->err);
-//            break;
-//        case Tbulk:
-//        case Tintr:
-//            io = ep->aux;
-//            if(ep->mode != OWRITE)
-//                s = seprint(s,e,"r: qh %#p id %#x tog %#x tok %#x err %s\n", io[OREAD].qh, io[OREAD].usbid, io[OREAD].toggle, io[OREAD].tok, io[OREAD].err);
-//            if(ep->mode != OREAD)
-//                s = seprint(s,e,"w: qh %#p id %#x tog %#x tok %#x err %s\n",io[OWRITE].qh, io[OWRITE].usbid, io[OWRITE].toggle, io[OWRITE].tok, io[OWRITE].err);
-//            break;
-//        case Tiso:
-//            iso = ep->aux;
-//            s = seprint(s,e,"iso %#p id %#x tok %#x tdu %#p tdi %#p err %s\n", iso, iso->usbid, iso->tok, iso->tdu, iso->tdi, iso->err);
-//            break;
-//    }
-//    
-//    iunlock(ctlr);
-//    return s;
 }
 
 static void
 dump(Hci *hp)
 {
 }
-
-#define MIN(x, y) ((x) > (y)) ? (y) : (x)
-
-static void 
-printmem(uint start, uint size) {
-    int arr = (int) start;
-    print("Memory Dump starting at 0x%#ux, length 0x%#ux words\n", start, size);
-    for(uint i=0; i<size; i++) {
-        print("mem[%p]: 0x%#ux\n", (int*)arr, (uint)inl(arr));
-        arr+=4;
-    }
-}
-
 
 
 /**************************************************
@@ -611,7 +553,7 @@ static void
 scanpci(void)
 {
     static int already = 0;
-    int io;
+    uint bar;
     int i;
     Ctlr *ctlr;
     Pcidev *p; // defined in io.h as struct
@@ -643,34 +585,33 @@ scanpci(void)
 
         // map registers into memory
         // TODO not sure about the BAR values, might have to try different things
-        io = p->mem[XHCI_PCI_BAR].bar & ~0x0F;
+        bar = p->mem[XHCI_PCI_BAR].bar & ~0x0F;
 
-        if(io == 0){
-            print("xhci: %#x %#x: failed to map registers\n", p->vid, p->did);
+        if(bar == 0){
+            print("xhci: %#ux %#ux: failed to map registers\n", p->vid, p->did);
             continue;
         } else {
-            print("xhci: vid:%#x did:%#x: successfully mapped registers at %d\n", p->vid, p->did, io);
+            print("xhci: vid:%#ux did:%#ux: successfully mapped registers at %#ux\n", p->vid, p->did, bar);
         }
   
-        // ioalloc(int port, int size, int align, char *tag) -- actually allocate this memory on host side
-        if(ioalloc(io, p->mem[XHCI_PCI_BAR].size, 0, "usbxhci") < 0){
-            print("usbxhci: port %#ux in use\n", io);
-            continue;
+        ctlr->xhci = vmap(bar, p->mem[XHCI_PCI_BAR].size);
+        if (ctlr->xhci == nil) {
+            panic("xhci: cannot map MMIO from PCI");
         }
   
         if(p->intl == 0xFF || p->intl == 0){
-            print("usbxhci: no irq assigned for port %#ux\n", io);
+            print("usbxhci: no irq assigned for bar %#ux\n", bar);
             continue;
         }
 
-        print("xhci: %#x %#x: port %#ux size %#x irq %d\n", p->vid, p->did, io, p->mem[XHCI_PCI_BAR].size, p->intl);
+        print("xhci: %#ux %#ux: bar %#ux size %#x irq %d\n", p->vid, p->did, bar, 
+            p->mem[XHCI_PCI_BAR].size, p->intl);
 
         ctlr = malloc(sizeof(Ctlr));
         if (ctlr == nil)
             panic("xhci: out of memory");
   
         ctlr->pcidev = p;
-        ctlr->port = io;
  
         // register this controller to ctlrs[]
         for(i = 0; i < Nhcis; i++) {
@@ -751,7 +692,7 @@ xhcireset(Ctlr *ctlr)
     // TODO why do I need this lock? 
     ilock(ctlr);
     
-    print("xhci %#ux reset\n", ctlr->port);
+    print("xhci with bar = %#ux reset\n", (uint)ctlr->xhci);
     
     // do I need to do this? 
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RESET, USBCMD_RESET_RESET);/* global reset */
@@ -843,7 +784,7 @@ reset(Hci *hp)
     // copy things over to hp structure
     p = ctlr->pcidev;
     hp->aux = ctlr;
-    hp->port = ctlr->port;
+    hp->port = (uint)ctlr->xhci;
     hp->irq = p->intl;
     hp->tbdf = p->tbdf;
     // TODO change this?
@@ -854,13 +795,13 @@ reset(Hci *hp)
     caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
     ctlr->caplength = caplength; 
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
-    ctlr->oper = (uint)ctlr->port + caplength + 1; 
+    ctlr->oper = (uint)ctlr->xhci + caplength + 1; 
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
     print("CAP base 0x%#xx OPER base 0x%#ux\n", ctlr->port, ctlr->oper);
     
     // print all the capability registers
-    printmem(ctlr->port, (0x20/4)); 
+    //printmem(ctlr->port, (0x20/4)); 
 
     // this call resets the chip and wait until regs are writable
     print("going to send hardware reset\n"); 
