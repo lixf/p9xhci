@@ -591,7 +591,7 @@ scanpci(void)
             print("xhci: %#ux %#ux: failed to map registers\n", p->vid, p->did);
             continue;
         } else {
-            print("xhci: vid:%#ux did:%#ux: successfully mapped registers at %#ux\n", p->vid, p->did, bar);
+            print("xhci: vid:%#ux did:%#ux: successfully mapped registers at %#ux size: %#ux\n", p->vid, p->did, bar, p->mem[XHCI_PCI_BAR].size);
         }
   
         ctlr->xhci = vmap(bar, p->mem[XHCI_PCI_BAR].size);
