@@ -594,6 +594,10 @@ scanpci(void)
             print("xhci: vid:%#ux did:%#ux: successfully mapped registers at %#ux size: %#ux\n", p->vid, p->did, bar, p->mem[XHCI_PCI_BAR].size);
         }
   
+        ctlr = malloc(sizeof(Ctlr));
+        if (ctlr == nil)
+            panic("xhci: out of memory");
+  
         ctlr->xhci = vmap(bar, p->mem[XHCI_PCI_BAR].size);
         print("vmap returned\n");
         if (ctlr->xhci == nil) {
@@ -608,10 +612,6 @@ scanpci(void)
         print("xhci: %#ux %#ux: bar %#ux size %#x irq %d\n", p->vid, p->did, bar, 
             p->mem[XHCI_PCI_BAR].size, p->intl);
 
-        ctlr = malloc(sizeof(Ctlr));
-        if (ctlr == nil)
-            panic("xhci: out of memory");
-  
         ctlr->pcidev = p;
  
         // register this controller to ctlrs[]
