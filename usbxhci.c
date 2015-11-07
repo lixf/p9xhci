@@ -566,7 +566,7 @@ epread(Ep *ep, void *a, long count)
  *  @param psce Port Status Change Event trb
  **/
 static void 
-handle_attachment(trb *psce) {
+handle_attachment(Trb *psce) {
     uint port_sts; 
   
     // look for which port caused the attachment event
@@ -582,7 +582,7 @@ handle_attachment(trb *psce) {
 
 
 static void
-dump_trb(trb *t) {
+dump_trb(Trb *t) {
     assert(t != NULL); 
     print("qwTrb0 (data ptr): 0x%#ux\n", t->qwTrb0);
     print("dwTrb2 (status): 0x%#ux\n", t->dwTrb2);
@@ -602,7 +602,7 @@ interrupt(Ureg*, void *arg)
 	Hci *hp;
 	Ctlr *ctlr;
 	ulong status; 
-    trb *event_trb; 
+    Trb *event_trb; 
     uint cycle_bit; 
 
 	hp = arg;
@@ -613,7 +613,7 @@ interrupt(Ureg*, void *arg)
     
     while (1) {
         // process all the events until the cycle bit differs
-        event_trb = (trb *)ctlr->event_deq; 
+        event_trb = (Trb *)ctlr->event_deq; 
         // check cycle bit before processing
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
         if (cycle_bit != ctlr->event_cycle_bit) {
