@@ -566,7 +566,7 @@ epread(Ep *ep, void *a, long count)
  *  @param psce Port Status Change Event trb
  **/
 static void 
-handle_attachment(Trb *psce) {
+handle_attachment(Ctlr *ctlr, Trb *psce) {
     uint port_sts; 
   
     // look for which port caused the attachment event
@@ -583,8 +583,9 @@ handle_attachment(Trb *psce) {
 
 static void
 dump_trb(Trb *t) {
-    assert(t != NULL); 
-    print("qwTrb0 (data ptr): 0x%#ux\n", t->qwTrb0);
+    assert(t != nil); 
+    print("qwTrb0 (data ptr low): 0x%#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
+    print("qwTrb0 (data ptr high): 0x%#ux\n", (uint)(t->qwTrb0 >> 32));
     print("dwTrb2 (status): 0x%#ux\n", t->dwTrb2);
     print("dwTrb3 (status): 0x%#ux\n", t->dwTrb3);
     print("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
@@ -601,7 +602,7 @@ interrupt(Ureg*, void *arg)
     dprint("xhci interrupt\n");
 	Hci *hp;
 	Ctlr *ctlr;
-	ulong status; 
+	//ulong status; 
     Trb *event_trb; 
     uint cycle_bit; 
 
@@ -626,7 +627,7 @@ interrupt(Ureg*, void *arg)
 
         // FIXME the only event we handle now is port connection status change
         //if (trb_type == EVENT_PORT_STS_CHANGE) {
-        handle_attachment(event_trb); 
+        handle_attachment(ctlr, event_trb); 
 
         ctlr->event_deq += sizeof(struct Trb); 
     }
@@ -772,12 +773,12 @@ xhcimeminit(Ctlr *ctlr)
 {
     // allocate the DCBAAP
     packed32B **dcbaap = (packed32B **)xspanalloc((sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, _64B); 
-    memset((void *)dcbaap, (sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2));
+    memset((void *)dcbaap, 0, (sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2));
     ctlr->devctx_bar = ((uint)dcbaap & 0xFFFFFFFF); 
     
     // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
     Trb *event_ring_bar = (Trb *)xspanalloc(sizeof(struct Trb) * 16, _4KB, _4KB); 
-    eventSegTabEntry *event_segtable = (eventSetTabEntry *)xspanalloc(sizeof(struct EventSegTabEntry), _64B, _64B); 
+    eventSegTabEntry *event_segtable = (eventSegTabEntry *)xspanalloc(sizeof(struct EventSegTabEntry), _64B, _64B); 
     event_segtable->ringSegBar  = (uvlong)event_ring_bar;
     event_segtable->ringSegSize = 16;
     ctlr->event_segtable = (uint) event_segtable; 
@@ -924,7 +925,6 @@ reset(Hci *hp)
     
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, ZERO);
-    print("readback: DCBAAP_HI: 0x%#ux should be 0", xhcireg_rd(ctlr, (DCBAAP_OFF+DCBAAP_HI_OFF), DCBAAP_HI));
     
     // set up the event ring
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
