@@ -12,11 +12,6 @@
 #include"../port/error.h"
 #include"usb.h"
 
-#define INL(x) inl(ctlr->port+(x))
-#define OUTL(x, v) outl(ctlr->port+(x), (v))
-#define TRUNC(x, sz) ((x) & ((sz)-1))
-//#define PTR(q) ((void*) KADDR((ulong)(q) & ~ (0xF|PCIWINDOW)))
-#define PORT(p) (Portsc0 + 2*(p))
 //#define diprint if(debug || iso->debug) print
 //#define ddiprint if(debug>1 || iso->debug>1) print
 //#define dqprint if(debug || (qh->io && qh->io->debug)) print
@@ -24,17 +19,15 @@
 
 /* static values -- read from CAPREG */
 static uint caplength; 
+static uint runtime_start; 
 int debug = 0;
 
 /* Hard coded values */
-#define XHCI_PCI_BAR 0
-#define XHCI_MAXSLOTSEN 2
-#define _64B 64
+#define XHCI_MAXSLOTSEN 2 // defines the max. num of slots enabled by sw
+#define CMD_RING_SIZE 32  // defines the number of TRBs in a CMD ring
 
-#define XHCI_CAPA 0
-#define XHCI_OPER 1
-#define XHCI_RUNT 2
-#define XHCI_DOOR 3
+#define _64B 64
+#define _4KB (4 << 10)
 
 /*************************************************
  * Controls for reading/writing of the registers *
@@ -46,9 +39,7 @@ int debug = 0;
 #define CONFIG_OFF (OPREG_OFF + 0x38)
 #define USBSTS_OFF (OPREG_OFF + 0x04)
 #define DCBAAP_OFF (OPREG_OFF + 0x30)
-    #define DCBAAP_HI_OFF 0x04
 #define CRCR_OFF (OPREG_OFF + 0x18)
-    #define CRCR_CMDRING_HI_OFF 0x04
 #define USBCMD_OFF (OPREG_OFF + 0x0)
 #define PORTSC_OFF (OPREG_OFF + 0x400) // this is a base addr for all ports
 #define PORTSC_ENUM_OFF 0x10
@@ -57,7 +48,11 @@ int debug = 0;
 #define CAPLENGTH_OFF (0x0)
 #define HCSPARAMS1_OFF (0x4)
 
-
+/* runtime registers */
+#define RTREG_OFF runtime_start 
+#define ERSTSZ_OFF (RTREG_OFF + 0x28)
+#define ERDP_OFF (RTREG_OFF + 0x30)
+#define ERSTBA_OFF (RTREG_OFF + 0x38)
 
 
 /* mask of each used bits for different control signals */
@@ -65,9 +60,7 @@ int debug = 0;
 #define CONFIG_MAXSLOTEN 0xFF
 #define USBSTS_CNR 0x800
 #define DCBAAP_LO 0xFFFFFFC0
-#define DCBAAP_HI 0xFFFFFFFF
 #define CRCR_CMDRING_LO 0xFFFFFFC0
-#define CRCR_CMDRING_HI 0xFFFFFFFF
 #define USBCMD_RS 0x1
 #define USBCMD_RESET 0x2
 #define PORTSC_CCS 0x1 // current connect status
@@ -103,7 +96,8 @@ struct EpCtx;   // endpoint context
 
 struct Packed32B;   // Generic packed 32-byte -- used for context
 struct Packed16B;   // Generic packed 16-byte -- used for TRBs
-
+                    // can also use for event ring segment table
+struct EventSegTabEntry;    // event ring segment table entry 
 
 /* definitions */
 struct Ctlr {
@@ -122,138 +116,139 @@ struct Ctlr {
     // software values
     uint devctx_bar; 
     uint cmd_ring_bar;  
+    uint event_deq; 
+    uint event_segtable; 
 };
 
 struct Trb {
-    	//volatile uint64_t   qwTrb0;
-	uint qwTrb0;
-#define XHCI_TRB_0_DIR_IN_MASK      (0x80ULL << 0)
-#define XHCI_TRB_0_WLENGTH_MASK     (0xFFFFULL << 48)
-    	//volatile uint32_t   dwTrb2;
-	uint dwTrb2;
-#define XHCI_TRB_2_ERROR_GET(x)     (((x) >> 24) & 0xFF)
-#define XHCI_TRB_2_ERROR_SET(x)     (((x) & 0xFF) << 24)
-#define XHCI_TRB_2_TDSZ_GET(x)      (((x) >> 17) & 0x1F)
-#define XHCI_TRB_2_TDSZ_SET(x)      (((x) & 0x1F) << 17)
-#define XHCI_TRB_2_REM_GET(x)       ((x) & 0xFFFFFF)
-#define XHCI_TRB_2_REM_SET(x)       ((x) & 0xFFFFFF)
-#define XHCI_TRB_2_BYTES_GET(x)     ((x) & 0x1FFFF)
-#define XHCI_TRB_2_BYTES_SET(x)     ((x) & 0x1FFFF)
-#define XHCI_TRB_2_IRQ_GET(x)       (((x) >> 22) & 0x3FF)
-#define XHCI_TRB_2_IRQ_SET(x)       (((x) & 0x3FF) << 22)
-#define XHCI_TRB_2_STREAM_GET(x)    (((x) >> 16) & 0xFFFF)
-#define XHCI_TRB_2_STREAM_SET(x)    (((x) & 0xFFFF) << 16)
+	volatile uvlong qwTrb0; // data buf lo + hi
+#define DIR_IN_MASK      (0x80ULL << 0)
+#define WLENGTH_MASK     (0xFFFFULL << 48)
+	volatile uint dwTrb2;
+#define ERROR_GET(x)     (((x) >> 24) & 0xFF)
+#define ERROR_SET(x)     (((x) & 0xFF) << 24)
+#define TDSZ_GET(x)      (((x) >> 17) & 0x1F)
+#define TDSZ_SET(x)      (((x) & 0x1F) << 17)
+#define REM_GET(x)       ((x) & 0xFFFFFF)
+#define REM_SET(x)       ((x) & 0xFFFFFF)
+#define BYTES_GET(x)     ((x) & 0x1FFFF)
+#define BYTES_SET(x)     ((x) & 0x1FFFF)
+#define IRQ_GET(x)       (((x) >> 22) & 0x3FF)
+#define IRQ_SET(x)       (((x) & 0x3FF) << 22)
+#define STREAM_GET(x)    (((x) >> 16) & 0xFFFF)
+#define STREAM_SET(x)    (((x) & 0xFFFF) << 16)
 
-    //volatile uint32_t   dwTrb3;
-    uint dwTrb3;
-#define XHCI_TRB_3_TYPE_GET(x)      (((x) >> 10) & 0x3F)
-#define XHCI_TRB_3_TYPE_SET(x)      (((x) & 0x3F) << 10)
-#define XHCI_TRB_3_CYCLE_BIT        (1U << 0)
-#define XHCI_TRB_3_TC_BIT       (1U << 1)   /* command ring only */
-#define XHCI_TRB_3_ENT_BIT      (1U << 1)   /* transfer ring only */
-#define XHCI_TRB_3_ISP_BIT      (1U << 2)
-#define XHCI_TRB_3_NSNOOP_BIT       (1U << 3)
-#define XHCI_TRB_3_CHAIN_BIT        (1U << 4)
-#define XHCI_TRB_3_IOC_BIT      (1U << 5)
-#define XHCI_TRB_3_IDT_BIT      (1U << 6)
-#define XHCI_TRB_3_TBC_GET(x)       (((x) >> 7) & 3)
-#define XHCI_TRB_3_TBC_SET(x)       (((x) & 3) << 7)
-#define XHCI_TRB_3_BEI_BIT      (1U << 9)
-#define XHCI_TRB_3_DCEP_BIT     (1U << 9)
-#define XHCI_TRB_3_PRSV_BIT     (1U << 9)
-#define XHCI_TRB_3_BSR_BIT      (1U << 9)
-#define XHCI_TRB_3_TRT_MASK     (3U << 16)
-#define XHCI_TRB_3_TRT_NONE     (0U << 16)
-#define XHCI_TRB_3_TRT_OUT      (2U << 16)
-#define XHCI_TRB_3_TRT_IN       (3U << 16)
-#define XHCI_TRB_3_DIR_IN       (1U << 16)
-#define XHCI_TRB_3_TLBPC_GET(x)     (((x) >> 16) & 0xF)
-#define XHCI_TRB_3_TLBPC_SET(x)     (((x) & 0xF) << 16)
-#define XHCI_TRB_3_EP_GET(x)        (((x) >> 16) & 0x1F)
-#define XHCI_TRB_3_EP_SET(x)        (((x) & 0x1F) << 16)
-#define XHCI_TRB_3_FRID_GET(x)      (((x) >> 20) & 0x7FF)
-#define XHCI_TRB_3_FRID_SET(x)      (((x) & 0x7FF) << 20)
-#define XHCI_TRB_3_ISO_SIA_BIT      (1U << 31)
-#define XHCI_TRB_3_SUSP_EP_BIT      (1U << 23)
-#define XHCI_TRB_3_SLOT_GET(x)      (((x) >> 24) & 0xFF)
-#define XHCI_TRB_3_SLOT_SET(x)      (((x) & 0xFF) << 24)
+    volatile uint dwTrb3;
+#define TYPE_GET(x)      (((x) >> 10) & 0x3F)
+#define TYPE_SET(x)      (((x) & 0x3F) << 10)
+#define CYCLE_BIT        (1U << 0)
+#define TC_BIT       (1U << 1)   /* command ring only */
+#define ENT_BIT      (1U << 1)   /* transfer ring only */
+#define ISP_BIT      (1U << 2)
+#define NSNOOP_BIT       (1U << 3)
+#define CHAIN_BIT        (1U << 4)
+#define IOC_BIT      (1U << 5)
+#define IDT_BIT      (1U << 6)
+#define TBC_GET(x)       (((x) >> 7) & 3)
+#define TBC_SET(x)       (((x) & 3) << 7)
+#define BEI_BIT      (1U << 9)
+#define DCEP_BIT     (1U << 9)
+#define PRSV_BIT     (1U << 9)
+#define BSR_BIT      (1U << 9)
+#define TRT_MASK     (3U << 16)
+#define TRT_NONE     (0U << 16)
+#define TRT_OUT      (2U << 16)
+#define TRT_IN       (3U << 16)
+#define DIR_IN       (1U << 16)
+#define TLBPC_GET(x)     (((x) >> 16) & 0xF)
+#define TLBPC_SET(x)     (((x) & 0xF) << 16)
+#define EP_GET(x)        (((x) >> 16) & 0x1F)
+#define EP_SET(x)        (((x) & 0x1F) << 16)
+#define FRID_GET(x)      (((x) >> 20) & 0x7FF)
+#define FRID_SET(x)      (((x) & 0x7FF) << 20)
+#define ISO_SIA_BIT      (1U << 31)
+#define SUSP_EP_BIT      (1U << 23)
+#define SLOT_GET(x)      (((x) >> 24) & 0xFF)
+#define SLOT_SET(x)      (((x) & 0xFF) << 24)
 
 /* Commands */
-#define XHCI_TRB_TYPE_RESERVED      0x00
-#define XHCI_TRB_TYPE_NORMAL        0x01
-#define XHCI_TRB_TYPE_SETUP_STAGE   0x02
-#define XHCI_TRB_TYPE_DATA_STAGE    0x03
-#define XHCI_TRB_TYPE_STATUS_STAGE  0x04
-#define XHCI_TRB_TYPE_ISOCH     0x05
-#define XHCI_TRB_TYPE_LINK      0x06
-#define XHCI_TRB_TYPE_EVENT_DATA    0x07
-#define XHCI_TRB_TYPE_NOOP      0x08
-#define XHCI_TRB_TYPE_ENABLE_SLOT   0x09
-#define XHCI_TRB_TYPE_DISABLE_SLOT  0x0A
-#define XHCI_TRB_TYPE_ADDRESS_DEVICE    0x0B
-#define XHCI_TRB_TYPE_CONFIGURE_EP  0x0C
-#define XHCI_TRB_TYPE_EVALUATE_CTX  0x0D
-#define XHCI_TRB_TYPE_RESET_EP      0x0E
-#define XHCI_TRB_TYPE_STOP_EP       0x0F
-#define XHCI_TRB_TYPE_SET_TR_DEQUEUE    0x10
-#define XHCI_TRB_TYPE_RESET_DEVICE  0x11
-#define XHCI_TRB_TYPE_FORCE_EVENT   0x12
-#define XHCI_TRB_TYPE_NEGOTIATE_BW  0x13
-#define XHCI_TRB_TYPE_SET_LATENCY_TOL   0x14
-#define XHCI_TRB_TYPE_GET_PORT_BW   0x15
-#define XHCI_TRB_TYPE_FORCE_HEADER  0x16
-#define XHCI_TRB_TYPE_NOOP_CMD      0x17
+#define TYPE_RESERVED      0x00
+#define TYPE_NORMAL        0x01
+#define TYPE_SETUP_STAGE   0x02
+#define TYPE_DATA_STAGE    0x03
+#define TYPE_STATUS_STAGE  0x04
+#define TYPE_ISOCH     0x05
+#define TYPE_LINK      0x06
+#define TYPE_EVENT_DATA    0x07
+#define TYPE_NOOP      0x08
+#define TYPE_ENABLE_SLOT   0x09
+#define TYPE_DISABLE_SLOT  0x0A
+#define TYPE_ADDRESS_DEVICE    0x0B
+#define TYPE_CONFIGURE_EP  0x0C
+#define TYPE_EVALUATE_CTX  0x0D
+#define TYPE_RESET_EP      0x0E
+#define TYPE_STOP_EP       0x0F
+#define TYPE_SET_TR_DEQUEUE    0x10
+#define TYPE_RESET_DEVICE  0x11
+#define TYPE_FORCE_EVENT   0x12
+#define TYPE_NEGOTIATE_BW  0x13
+#define TYPE_SET_LATENCY_TOL   0x14
+#define TYPE_GET_PORT_BW   0x15
+#define TYPE_FORCE_HEADER  0x16
+#define TYPE_NOOP_CMD      0x17
 
 /* Events */
-#define XHCI_TRB_EVENT_TRANSFER     0x20
-#define XHCI_TRB_EVENT_CMD_COMPLETE 0x21
-#define XHCI_TRB_EVENT_PORT_STS_CHANGE  0x22
-#define XHCI_TRB_EVENT_BW_REQUEST       0x23
-#define XHCI_TRB_EVENT_DOORBELL     0x24
-#define XHCI_TRB_EVENT_HOST_CTRL    0x25
-#define XHCI_TRB_EVENT_DEVICE_NOTIFY    0x26
-#define XHCI_TRB_EVENT_MFINDEX_WRAP 0x27
+#define EVENT_TRANSFER     0x20
+#define EVENT_CMD_COMPLETE 0x21
+#define EVENT_PORT_STS_CHANGE  0x22
+#define EVENT_BW_REQUEST       0x23
+#define EVENT_DOORBELL     0x24
+#define EVENT_HOST_CTRL    0x25
+#define EVENT_DEVICE_NOTIFY    0x26
+#define EVENT_MFINDEX_WRAP 0x27
 
 /* Error codes */
-#define XHCI_TRB_ERROR_INVALID      0x00
-#define XHCI_TRB_ERROR_SUCCESS      0x01
-#define XHCI_TRB_ERROR_DATA_BUF     0x02
-#define XHCI_TRB_ERROR_BABBLE       0x03
-#define XHCI_TRB_ERROR_XACT     0x04
-#define XHCI_TRB_ERROR_TRB      0x05
-#define XHCI_TRB_ERROR_STALL        0x06
-#define XHCI_TRB_ERROR_RESOURCE     0x07
-#define XHCI_TRB_ERROR_BANDWIDTH    0x08
-#define XHCI_TRB_ERROR_NO_SLOTS     0x09
-#define XHCI_TRB_ERROR_STREAM_TYPE  0x0A
-#define XHCI_TRB_ERROR_SLOT_NOT_ON  0x0B
-#define XHCI_TRB_ERROR_ENDP_NOT_ON  0x0C
-#define XHCI_TRB_ERROR_SHORT_PKT    0x0D
-#define XHCI_TRB_ERROR_RING_UNDERRUN    0x0E
-#define XHCI_TRB_ERROR_RING_OVERRUN 0x0F
-#define XHCI_TRB_ERROR_VF_RING_FULL 0x10
-#define XHCI_TRB_ERROR_PARAMETER    0x11
-#define XHCI_TRB_ERROR_BW_OVERRUN   0x12
-#define XHCI_TRB_ERROR_CONTEXT_STATE    0x13
-#define XHCI_TRB_ERROR_NO_PING_RESP 0x14
-#define XHCI_TRB_ERROR_EV_RING_FULL 0x15
-#define XHCI_TRB_ERROR_INCOMPAT_DEV 0x16
-#define XHCI_TRB_ERROR_MISSED_SERVICE   0x17
-#define XHCI_TRB_ERROR_CMD_RING_STOP    0x18
-#define XHCI_TRB_ERROR_CMD_ABORTED  0x19
-#define XHCI_TRB_ERROR_STOPPED      0x1A
-#define XHCI_TRB_ERROR_LENGTH       0x1B
-#define XHCI_TRB_ERROR_BAD_MELAT    0x1D
-#define XHCI_TRB_ERROR_ISOC_OVERRUN 0x1F
-#define XHCI_TRB_ERROR_EVENT_LOST   0x20
-#define XHCI_TRB_ERROR_UNDEFINED    0x21
-#define XHCI_TRB_ERROR_INVALID_SID  0x22
-#define XHCI_TRB_ERROR_SEC_BW       0x23
-#define XHCI_TRB_ERROR_SPLIT_XACT   0x24
+#define ERROR_INVALID      0x00
+#define ERROR_SUCCESS      0x01
+#define ERROR_DATA_BUF     0x02
+#define ERROR_BABBLE       0x03
+#define ERROR_XACT     0x04
+#define ERROR_TRB      0x05
+#define ERROR_STALL        0x06
+#define ERROR_RESOURCE     0x07
+#define ERROR_BANDWIDTH    0x08
+#define ERROR_NO_SLOTS     0x09
+#define ERROR_STREAM_TYPE  0x0A
+#define ERROR_SLOT_NOT_ON  0x0B
+#define ERROR_ENDP_NOT_ON  0x0C
+#define ERROR_SHORT_PKT    0x0D
+#define ERROR_RING_UNDERRUN    0x0E
+#define ERROR_RING_OVERRUN 0x0F
+#define ERROR_VF_RING_FULL 0x10
+#define ERROR_PARAMETER    0x11
+#define ERROR_BW_OVERRUN   0x12
+#define ERROR_CONTEXT_STATE    0x13
+#define ERROR_NO_PING_RESP 0x14
+#define ERROR_EV_RING_FULL 0x15
+#define ERROR_INCOMPAT_DEV 0x16
+#define ERROR_MISSED_SERVICE   0x17
+#define ERROR_CMD_RING_STOP    0x18
+#define ERROR_CMD_ABORTED  0x19
+#define ERROR_STOPPED      0x1A
+#define ERROR_LENGTH       0x1B
+#define ERROR_BAD_MELAT    0x1D
+#define ERROR_ISOC_OVERRUN 0x1F
+#define ERROR_EVENT_LOST   0x20
+#define ERROR_UNDEFINED    0x21
+#define ERROR_INVALID_SID  0x22
+#define ERROR_SEC_BW       0x23
+#define ERROR_SPLIT_XACT   0x24
 };
 
 struct Td {
-    int id;
+    volatile int id;             // FIXME TD identifier
+    volatile struct Trb *trbs;   // The linked trb
+    volatile int length;         // num of trb in this TD
 }; 
 
 struct SlotCtx {
@@ -308,18 +303,21 @@ struct EpCtx {
     /* word 4 */
     uint aveTrbLen; // bits[15:0] average TRB length
     char maxEsitLo; // bits[31:24] max ep service time interval payload lo TODO
-    
-    /* word 5-7 */
-    uint rsvd[3];
+}; 
+
+struct EventSegTabEntry {
+    volatile uvlong ringSegBar; // 64 bit event ring segment base address
+    volatile uint ringSegSize;  // possible sizes: 16-4096
 }; 
 
 
+
 struct Packed32B {
-    uint words[8]; 
+    volatile uint words[8]; 
 };
 
 struct Packed16B {
-    uint words[4]; 
+    volatile uint words[4]; 
 };
 
 /* typedefs */
@@ -330,6 +328,7 @@ typedef struct SlotCtx slotCtx;
 typedef struct EpCtx epCtx; 
 typedef struct Packed32B packed32B; 
 typedef struct Packed16B packed16B; 
+typedef struct EventSegTabEntry eventSegTabEntry; 
 
 /*********************************************
  * xHCI specific functions
@@ -371,6 +370,10 @@ pack_slot_ctx(packed32B *packed, slotCtx *slots) {
     return; 
 }
 
+static inline void
+unpack_slot_ctx(packed32B *packed, slotCtx *slots) {
+    return; 
+}
 
 static inline void
 pack_ep_ctx(packed32B *packed, epCtx *ep) {
@@ -403,6 +406,11 @@ pack_ep_ctx(packed32B *packed, epCtx *ep) {
     return; 
 }
 
+static inline void
+unpack_ep_ctx(packed32B *packed, epCtx *ep) {
+    return; 
+}
+
 /** @brief These functions define the default setups for a slot/ep context 
  *  
  *  @param[in/out] slot_ctx The slot context to configure
@@ -414,6 +422,7 @@ pack_ep_ctx(packed32B *packed, epCtx *ep) {
 static inline void 
 setup_default_slot_ctx(slotCtx *slot_ctx) {
     // now configure the slot and endpoint; then pack into 32B structs
+    // TODO don't write all zeros
     slot_ctx->routeStr  = 0; 
     slot_ctx->speed     = 0; 
     slot_ctx->mmt       = 0; 
@@ -433,6 +442,7 @@ setup_default_slot_ctx(slotCtx *slot_ctx) {
 
 static inline void
 setup_default_ep_ctx(epCtx *ep_ctx) {
+    // TODO write something 
     ep_ctx->epstate       = 0;
     ep_ctx->hostInitDis   = 0;
     ep_ctx->trDeqPtrLo    = 0;
@@ -448,9 +458,7 @@ xhcireg_wr(Ctlr *ctlr, uint offset, uint mask, uint new)
 {
     uint addr = ((uint) ctlr->xhci) + offset; 
     uint read = *((uint *) addr);
-    print("writing %#ux to offset %#ux", ((read & ~mask) | new), offset);
     *((uint *) addr) = ((read & ~mask) | new);
-    //OUTL(offset, ((read & ~mask) | new));
 }
 
 static uint
@@ -461,6 +469,20 @@ xhcireg_rd(Ctlr *ctlr, uint offset, uint mask)
 }
 
 static Ctlr* ctlrs[Nhcis];
+
+
+// TRB functions
+static void 
+send_command() {
+    return; 
+}
+
+
+
+
+
+
+
 
 /**********************************************
  * Top level interface functions -- debugging * 
@@ -566,39 +588,32 @@ scanpci(void)
     // start enumerating everything on PCI
     // pcimatch(vid, did) -- 0 for everything
     while (p = pcimatch(p, 0, 0)) {
-        /*
-         * Find UHCI controllers (Programming Interface = 0).
-         */
 
         /*
          * XHCI controllers programming interface = 0x30
          */
-
-        // what are these things? ccrb/ccru? 
-        // we are looking for serial and usb -- still true for xhci?
-        // Found this online: 
         // ccrb -- (base class code) controller types
         // ccru -- (sub-class code)
         // ccrp -- programming interface class mode?? Not sure..
         if(p->ccrb != Pcibcserial || p->ccru != Pciscusb || p->ccrp != 0x30)
             continue;
 
-        // map registers into memory
-        // TODO not sure about the BAR values, might have to try different things
-        bar = p->mem[XHCI_PCI_BAR].bar & ~0x0F;
+        // XHCI implements bar0 and bar1 (64b)
+        bar = p->mem[0].bar & ~0x0F;
 
         if(bar == 0){
             print("xhci: %#ux %#ux: failed to map registers\n", p->vid, p->did);
             continue;
         } else {
-            print("xhci: vid:%#ux did:%#ux: successfully mapped registers at %#ux size: %#ux\n", p->vid, p->did, bar, p->mem[XHCI_PCI_BAR].size);
+            print("xhci: vid:%#ux did:%#ux: successfully mapped registers at %#ux size: %#ux\n", 
+                p->vid, p->did, bar, p->mem[0].size);
         }
   
         ctlr = malloc(sizeof(Ctlr));
         if (ctlr == nil)
             panic("xhci: out of memory");
   
-        ctlr->xhci = vmap(bar, p->mem[XHCI_PCI_BAR].size);
+        ctlr->xhci = vmap(bar, p->mem[0].size);
         print("vmap returned\n");
         if (ctlr->xhci == nil) {
             panic("xhci: cannot map MMIO from PCI");
@@ -610,7 +625,7 @@ scanpci(void)
         }
 
         print("xhci: %#ux %#ux: bar %#ux size %#x irq %d\n", p->vid, p->did, bar, 
-            p->mem[XHCI_PCI_BAR].size, p->intl);
+            p->mem[0].size, p->intl);
 
         ctlr->pcidev = p;
  
@@ -628,74 +643,88 @@ scanpci(void)
     }
 }
 
+/********************************************************
+ ** Dead but possibly useful code
+ *******************************************************/
+// This code allocates slot contexts 
+// Possibly used during device enumeration
+
+//    // allocate memory for slot (context + MaxSlotsEn) * Packed32B
+//    slotCtx *slot_ctx = xspanalloc(sizeof(struct SlotCtx), _64B, _64B);
+//    packed32B *packed_slot = xspanalloc(sizeof(struct Packed32B), _64B, _64B);
+//    
+//    // for ep contexts
+//    //uint num_ep = XHCI_MAXSLOTSEN * 2; // FIXME == 4 for now
+//    uint num_ep = 4;
+//    epCtx *ep_ctx[5];  // +1 for ep0 base dir
+//    packed32B *packed_ep[5]; 
+//    for(int i = 0; i < 5; i++) {
+//        ep_ctx[i] = (epCtx *)xspanalloc(sizeof(struct EpCtx), _64B, _64B);
+//        packed_ep[i] = (packed32B *)xspanalloc(sizeof(struct Packed32B), _64B, _64B);
+//    }
+//    
+//    // configure and pack slot context
+//    setup_default_slot_ctx(slot_ctx); 
+//    pack_slot_ctx(packed_slot, slot_ctx);
+//    
+//
+//    // configure and pack ep context
+//    setup_default_ep_ctx(ep_ctx[0]); 
+//    // mark ep in/out 
+//    pack_ep_ctx(packed_ep[0], ep_ctx[0]);
+//
+//    // ep1 OUT
+//    setup_default_ep_ctx(ep_ctx[1]); 
+//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+//    
+//    // ep1 IN
+//    setup_default_ep_ctx(ep_ctx[1]); 
+//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+//    
+//    // ep2 OUT
+//    setup_default_ep_ctx(ep_ctx[1]); 
+//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+//    
+//    // ep2 IN
+//    setup_default_ep_ctx(ep_ctx[1]); 
+//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+
+//    dcbaap[0] = packed_slot;
+//    dcbaap[1] = packed_ep[0];
+//    dcbaap[2] = packed_ep[1];
+//    dcbaap[3] = packed_ep[2];
+//    dcbaap[4] = packed_ep[3];
+//    dcbaap[5] = packed_ep[4];
+
 static void
 xhcimeminit(Ctlr *ctlr)
 {
-    // allocate memory for slot (context + MaxSlotsEn) * Packed32B
-    slotCtx *slot_ctx = xspanalloc(sizeof(struct SlotCtx), _64B, _64B);
-    packed32B *packed_slot = xspanalloc(sizeof(struct Packed32B), _64B, _64B);
-    
-    // for ep contexts
-    //uint num_ep = XHCI_MAXSLOTSEN * 2; // FIXME == 4 for now
-    uint num_ep = 4;
-    epCtx *ep_ctx[5];  // +1 for ep0 base dir
-    packed32B *packed_ep[5]; 
-    for(int i = 0; i < 5; i++) {
-        ep_ctx[i] = (epCtx *)xspanalloc(sizeof(struct EpCtx), _64B, _64B);
-        packed_ep[i] = (packed32B *)xspanalloc(sizeof(struct Packed32B), _64B, _64B);
-    }
-    
-    // configure and pack slot context
-    setup_default_slot_ctx(slot_ctx); 
-    pack_slot_ctx(packed_slot, slot_ctx);
-    
-
-    // configure and pack ep context
-    setup_default_ep_ctx(ep_ctx[0]); 
-    // mark ep in/out 
-    pack_ep_ctx(packed_ep[0], ep_ctx[0]);
-
-    // ep1 OUT
-    setup_default_ep_ctx(ep_ctx[1]); 
-    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-    
-    // ep1 IN
-    setup_default_ep_ctx(ep_ctx[1]); 
-    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-    
-    // ep2 OUT
-    setup_default_ep_ctx(ep_ctx[1]); 
-    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-    
-    // ep2 IN
-    setup_default_ep_ctx(ep_ctx[1]); 
-    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-
     // allocate the DCBAAP
-    packed32B **dcbaap = (packed32B **)xspanalloc((sizeof(void *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, _64B); 
-    dcbaap[0] = packed_slot;
-    dcbaap[1] = packed_ep[0];
-    dcbaap[2] = packed_ep[1];
-    dcbaap[3] = packed_ep[2];
-    dcbaap[4] = packed_ep[3];
-    dcbaap[5] = packed_ep[4];
+    packed32B **dcbaap = (packed32B **)xspanalloc((sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, _64B); 
+    memset((void *)dcbaap, (sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2));
     ctlr->devctx_bar = ((uint)dcbaap & 0xFFFFFFFF); 
     
+    // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
+    Trb *event_ring_bar = (Trb *)xspanalloc(sizeof(struct Trb) * 16, _4KB, _4KB); 
+    eventSegTabEntry *event_segtable = (eventSetTabEntry *)xspanalloc(sizeof(struct EventSegTabEntry), _64B, _64B); 
+    event_segtable->ringSegBar  = (uvlong)event_ring_bar;
+    event_segtable->ringSegSize = 16;
+    ctlr->event_segtable = (uint) event_segtable; 
+    // set deq ptr to the first trb in the event ring
+    ctlr->event_deq = (uint) event_ring_bar; 
     
-    // allocate the first command TRB TODO
-    ctlr->cmd_ring_bar = 0; 
+    // allocate the command ring and set up the pointers
+    Trb *cmd_ring_bar = (Trb *)xspanalloc((sizeof(struct Trb) * CMD_RING_SIZE, _4KB, _4KB); 
+    ctlr->cmd_ring_bar = (uint)cmd_ring_bar; 
 }
     
 static void
 xhcireset(Ctlr *ctlr)
 {
     int i; 
-    // TODO why do I need this lock? 
     ilock(ctlr);
     
     print("xhci with bar = %#ux reset\n", (uint)ctlr->xhci);
-    
-    // do I need to do this? 
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RESET, USBCMD_RESET_RESET);/* global reset */
     
     i = 0; 
@@ -703,13 +732,12 @@ xhcireset(Ctlr *ctlr)
         // WAIT until timeout
         delay(1);
         if ((i = i + 1) == 100) {
-            print("xhci controller reset timed out, USBSTS_CNR = %d\n", xhcireg_rd(ctlr, USBSTS_OFF, USBSTS_CNR));
+            print("xhci controller reset timed out\n");
             break; 
         }
     }
 
     iunlock(ctlr);
-     
     return;
 }
 
@@ -823,15 +851,22 @@ reset(Hci *hp)
     print("readback: DCBAAP_LO: 0x%#ux should be 0x%#ux", xhcireg_rd(ctlr, DCBAAP_OFF, DCBAAP_LO), ctlr->devctx_bar);
     
     // DCBAAP_HI = 0
-    xhcireg_wr(ctlr, (DCBAAP_OFF + DCBAAP_HI_OFF), DCBAAP_HI, ZERO);
+    xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, ZERO);
     print("readback: DCBAAP_HI: 0x%#ux should be 0", xhcireg_rd(ctlr, (DCBAAP_OFF+DCBAAP_HI_OFF), DCBAAP_HI));
     
+    // set up the event ring
+    xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
+    xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_deq); // [2:0] used by xHC, [3] is Event Handle Busy TODO
+    xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, ctlr->event_deq); // write the event segtable pointer
+    xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable); // [5:0] is reserved 
+    xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
+
+
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
-    print("TODO: not reading back cmdring addr for now cuz they are 0's\n");
 
     // CRCR_CMDRING_HI = 0
-    xhcireg_wr(ctlr, (CRCR_OFF + CRCR_CMDRING_HI_OFF), CRCR_CMDRING_HI, ZERO);
+    xhcireg_wr(ctlr, (CRCR_OFF + 4), 0xFFFFFFFF, ZERO);
 
     // tell the controller to run
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RS, USBCMD_RS_RUN);
