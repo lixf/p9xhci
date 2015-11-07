@@ -113,11 +113,14 @@ struct Ctlr {
     uint caplength; 
     uint num_port; 
 
-    // software values
+    /* software values */
+    // set up values
     uint devctx_bar; 
     uint cmd_ring_bar;  
     uint event_deq; 
     uint event_segtable; 
+    // runtime values
+    uint event_cycle_bit;
 };
 
 struct Trb {
@@ -557,10 +560,78 @@ epread(Ep *ep, void *a, long count)
     return -1;
 }
 
+
+/** @brief this function handles the port status change event TRB
+ *  
+ *  @param psce Port Status Change Event trb
+ **/
+static void 
+handle_attachment(trb *psce) {
+    uint port_sts; 
+  
+    // look for which port caused the attachment event
+    uint port_id = psce->qwTrb0 >> 24 & 0xFF;
+    print("port id %u caused attachment event\n", port_id);
+
+    // read port status
+    uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
+    port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
+    print("port status 0x%#ux\n", port_sts);
+    return; 
+}
+
+
 static void
-interrupt(Ureg*, void *a)
+dump_trb(trb *t) {
+    assert(t != NULL); 
+    print("qwTrb0 (data ptr): 0x%#ux\n", t->qwTrb0);
+    print("dwTrb2 (status): 0x%#ux\n", t->dwTrb2);
+    print("dwTrb3 (status): 0x%#ux\n", t->dwTrb3);
+    print("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
+    return; 
+}
+
+
+/** @brief This is the xHCI interrupt handler
+ *  It will print out the interrupt status and check the command ring
+ **/
+static void
+interrupt(Ureg*, void *arg)
 {
     dprint("xhci interrupt\n");
+	Hci *hp;
+	Ctlr *ctlr;
+	ulong status; 
+    trb *event_trb; 
+    uint cycle_bit; 
+
+	hp = arg;
+	ctlr = hp->aux;
+	
+    // lock here -- start checking event ring
+    ilock(ctlr);
+    
+    while (1) {
+        // process all the events until the cycle bit differs
+        event_trb = (trb *)ctlr->event_deq; 
+        // check cycle bit before processing
+        cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
+        if (cycle_bit != ctlr->event_cycle_bit) {
+            ctlr->event_cycle_bit = cycle_bit;  
+            break; 
+        }
+        // now process this event
+        print("received event TRB: \n");
+        dump_trb(event_trb);
+
+        // FIXME the only event we handle now is port connection status change
+        //if (trb_type == EVENT_PORT_STS_CHANGE) {
+        handle_attachment(event_trb); 
+
+        ctlr->event_deq += sizeof(struct Trb); 
+    }
+
+	iunlock(ctlr);
     return;
 }
 
@@ -712,6 +783,7 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->event_segtable = (uint) event_segtable; 
     // set deq ptr to the first trb in the event ring
     ctlr->event_deq = (uint) event_ring_bar; 
+    ctlr->event_cycle_bit = 0; 
     
     // allocate the command ring and set up the pointers
     Trb *cmd_ring_bar = (Trb *)xspanalloc((sizeof(struct Trb) * CMD_RING_SIZE, _4KB, _4KB); 
