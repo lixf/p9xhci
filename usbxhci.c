@@ -50,6 +50,7 @@ int debug = 0;
 
 /* runtime registers */
 #define RTREG_OFF runtime_start 
+#define INTE_OFF (RTREG_OFF + 0x20)
 #define ERSTSZ_OFF (RTREG_OFF + 0x28)
 #define ERDP_OFF (RTREG_OFF + 0x30)
 #define ERSTBA_OFF (RTREG_OFF + 0x38)
@@ -926,12 +927,15 @@ reset(Hci *hp)
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, ZERO);
     
-    // set up the event ring
+    // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
     xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_deq); // [2:0] used by xHC, [3] is Event Handle Busy TODO
     xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, ctlr->event_deq); // write the event segtable pointer
     xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable); // [5:0] is reserved 
     xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
+    // enable interrupt and TODO: disable MSI/MSIX
+    // set interrupt enable = 1
+    xhcireg_wr(ctlr, INTE_OFF, 0x1, 1); 
 
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
