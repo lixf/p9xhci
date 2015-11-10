@@ -507,56 +507,56 @@ dump(Hci *hp)
 static void
 init(Hci *hp)
 {
-    dprint("xhci init\n");
+    print("xhci init\n");
     return; 
 }
 
 static int
 portreset(Hci *hp, int port, int on)
 {
-    dprint("xhci portreset\n");
+    print("xhci portreset\n");
     return -1; 
 }
 
 static int
 portenable(Hci *hp, int port, int on)
 {
-    dprint("xhci portenable\n");
+    print("xhci portenable\n");
     return -1; 
 }
 
 static int
 portstatus(Hci *hp, int port)
 {
-    dprint("xhci portstatus\n");
+    print("xhci portstatus\n");
     return -1;
 }
 
 static void
 epclose(Ep *ep)
 {
-    dprint("xhci epclose\n");
+    print("xhci epclose\n");
     return; 
 }
 
 static void
 epopen(Ep *ep)
 {
-    dprint("xhci epopen\n");
+    print("xhci epopen\n");
     return; 
 }
 
 static long
 epwrite(Ep *ep, void *a, long count)
 {
-    dprint("xhci epwrite\n");
+    print("xhci epwrite\n");
     return -1;
 }
 
 static long
 epread(Ep *ep, void *a, long count)
 {
-    dprint("xhci epread\n");
+    print("xhci epread\n");
     return -1;
 }
 
@@ -599,7 +599,7 @@ dump_trb(Trb *t) {
 static void
 interrupt(Ureg*, void *arg)
 {
-    dprint("xhci interrupt\n");
+    print("xhci interrupt\n");
 	Hci *hp;
 	Ctlr *ctlr;
 	//ulong status; 
@@ -787,7 +787,7 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->event_cycle_bit = 0; 
     
     // allocate the command ring and set up the pointers
-    Trb *cmd_ring_bar = (Trb *)xspanalloc((sizeof(struct Trb) * CMD_RING_SIZE, _4KB, _4KB); 
+    Trb *cmd_ring_bar = (Trb *)xspanalloc((sizeof(struct Trb) * CMD_RING_SIZE), _4KB, _4KB); 
     ctlr->cmd_ring_bar = (uint)cmd_ring_bar; 
 }
     
@@ -897,7 +897,7 @@ reset(Hci *hp)
     caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
     ctlr->caplength = caplength; 
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
-    ctlr->oper = (uint)ctlr->xhci + caplength + 1; 
+    ctlr->oper = (uint)ctlr->xhci + caplength; 
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
     print("CAP base 0x%#ux OPER base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper);
