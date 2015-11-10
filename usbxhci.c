@@ -49,11 +49,12 @@ int debug = 0;
 #define HCSPARAMS1_OFF (0x4)
 
 /* runtime registers */
-#define RTREG_OFF runtime_start 
-#define INTE_OFF (RTREG_OFF + 0x20)
-#define ERSTSZ_OFF (RTREG_OFF + 0x28)
-#define ERDP_OFF (RTREG_OFF + 0x30)
-#define ERSTBA_OFF (RTREG_OFF + 0x38)
+#define RTS_OFF (0x18)              // Runtime Space offset (from Bar)
+#define RTREG_OFF runtime_start     // start of Runtime Registers
+#define INTE_OFF (RTREG_OFF + 0x20) // Interrupt enable bit
+#define ERSTSZ_OFF (RTREG_OFF + 0x28)   // Event segment size
+#define ERDP_OFF (RTREG_OFF + 0x30)     // Event ring dequeue
+#define ERSTBA_OFF (RTREG_OFF + 0x38)   // Event sgement bar 
 
 
 /* mask of each used bits for different control signals */
@@ -896,6 +897,7 @@ reset(Hci *hp)
     // read some stuff and set global values
     // FIXME not work with > 1 controller
     caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
+    runtime_start = xhcireg_rd(ctlr, RTS_OFF, 0xFFFFFFE0) + hp->port;
     ctlr->caplength = caplength; 
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
     ctlr->oper = (uint)ctlr->xhci + caplength; 
@@ -936,7 +938,6 @@ reset(Hci *hp)
     // enable interrupt and TODO: disable MSI/MSIX
     // set interrupt enable = 1
     xhcireg_wr(ctlr, INTE_OFF, 0x1, 1); 
-
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
