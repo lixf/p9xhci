@@ -19,9 +19,10 @@
 
 /* static values -- read from CAPREG */
 static uint caplength; 
-static uint runtime_start; 
+static uint runtime_off; 
 int debug = 0;
 
+#define XHCI_DEBUG
 /* Hard coded values */
 #define XHCI_MAXSLOTSEN 2 // defines the max. num of slots enabled by sw
 #define CMD_RING_SIZE 32  // defines the number of TRBs in a CMD ring
@@ -50,7 +51,7 @@ int debug = 0;
 
 /* runtime registers */
 #define RTS_OFF (0x18)              // Runtime Space offset (from Bar)
-#define RTREG_OFF runtime_start     // start of Runtime Registers
+#define RTREG_OFF runtime_off       // Offset of start of Runtime Registers
 #define INTE_OFF (RTREG_OFF + 0x20) // Interrupt enable bit
 #define ERSTSZ_OFF (RTREG_OFF + 0x28)   // Event segment size
 #define ERDP_OFF (RTREG_OFF + 0x30)     // Event ring dequeue
@@ -857,7 +858,6 @@ reset(Hci *hp)
     int i;
     Ctlr *ctlr;
     Pcidev *p;
-    uint runtime_off;
 
     // some global configuration to turn off certain controller
     // see plan9ini[] in main.c
@@ -904,7 +904,14 @@ reset(Hci *hp)
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
     ctlr->oper = (uint)ctlr->xhci + caplength; 
     ctlr->runt = (uint)ctlr->xhci + runtime_off;
-    runtime_start = ctlr->runt;
+
+#ifdef XHCI_DEBUG
+    print("printing all capabilities\n");
+    int i = 0; 
+    for (; i < 8; i++) {
+        print("cap[%d] = 0x%#ux\n", i, xhcireg_rd(ctlr, (i<<2), (uint)-1));
+    }
+#endif
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
     print("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
@@ -928,8 +935,8 @@ reset(Hci *hp)
     
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, ZERO);
+    print("configured device contexts\n"); 
    
-#ifdef XHCI_ENABLE_INTR
     // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
     print("configured event ring size\n"); 
@@ -943,7 +950,6 @@ reset(Hci *hp)
     // set interrupt enable = 1
     xhcireg_wr(ctlr, INTE_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
     print("interrupt is on\n"); 
-#endif
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
