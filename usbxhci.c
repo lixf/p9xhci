@@ -931,13 +931,17 @@ reset(Hci *hp)
     
     // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
+    print("configured event ring size\n"); 
     xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_deq); // [2:0] used by xHC, [3] is Event Handle Busy TODO
-    xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, ctlr->event_deq); // write the event segtable pointer
+    xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, 0); 
+    print("configured event ring deq ptr\n"); 
     xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable); // [5:0] is reserved 
     xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
+    print("configured event ring bar\n"); 
     // enable interrupt and TODO: disable MSI/MSIX
     // set interrupt enable = 1
-    xhcireg_wr(ctlr, INTE_OFF, 0x1, 1); 
+    xhcireg_wr(ctlr, INTE_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
+    print("interrupt is on\n"); 
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
@@ -947,6 +951,7 @@ reset(Hci *hp)
 
     // tell the controller to run
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RS, USBCMD_RS_RUN);
+    print("controller is on\n"); 
     /*
      * Linkage to the generic HCI driver.
      */
