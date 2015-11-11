@@ -109,6 +109,7 @@ struct Ctlr {
     int active; 
     void *xhci; // MMIO pointer
     uint oper;
+    uint runt;
     // throw away the rest for now
     // because XHCI has no QH or ISO support for now
     // read from hw
@@ -856,6 +857,7 @@ reset(Hci *hp)
     int i;
     Ctlr *ctlr;
     Pcidev *p;
+    uint runtime_off;
 
     // some global configuration to turn off certain controller
     // see plan9ini[] in main.c
@@ -897,17 +899,16 @@ reset(Hci *hp)
     // read some stuff and set global values
     // FIXME not work with > 1 controller
     caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
-    runtime_start = xhcireg_rd(ctlr, RTS_OFF, 0xFFFFFFE0) + hp->port;
+    runtime_off = xhcireg_rd(ctlr, RTS_OFF, 0xFFFFFFE0);
     ctlr->caplength = caplength; 
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
     ctlr->oper = (uint)ctlr->xhci + caplength; 
+    ctlr->runt = (uint)ctlr->xhci + runtime_off;
+    runtime_start = ctlr->runt;
 
     print("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
-    print("CAP base 0x%#ux OPER base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper);
+    print("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
     
-    // print all the capability registers
-    //printmem(ctlr->port, (0x20/4)); 
-
     // this call resets the chip and wait until regs are writable
     print("going to send hardware reset\n"); 
     xhcireset(ctlr);
@@ -920,15 +921,15 @@ reset(Hci *hp)
     
     // MAX_SLOT_EN == 2
     xhcireg_wr(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN, 2);
-    print("readback: MAX_SLOT_EN: %d should be 2", xhcireg_rd(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN));
+    print("readback: MAX_SLOT_EN: %d should be 2\n", xhcireg_rd(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN));
 
     // DCBAAP_LO = ctlr->devctx_bar
     xhcireg_wr(ctlr, DCBAAP_OFF, DCBAAP_LO, ctlr->devctx_bar);
-    print("readback: DCBAAP_LO: 0x%#ux should be 0x%#ux", xhcireg_rd(ctlr, DCBAAP_OFF, DCBAAP_LO), ctlr->devctx_bar);
     
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, ZERO);
-    
+   
+#ifdef XHCI_ENABLE_INTR
     // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
     print("configured event ring size\n"); 
@@ -942,6 +943,7 @@ reset(Hci *hp)
     // set interrupt enable = 1
     xhcireg_wr(ctlr, INTE_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
     print("interrupt is on\n"); 
+#endif
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
