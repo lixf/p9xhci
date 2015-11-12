@@ -66,25 +66,17 @@ int debug = 0;
 #define CRCR_CMDRING_LO 0xFFFFFFC0
 #define USBCMD_RS 0x1
 #define USBCMD_RESET 0x2
+#define USBCMD_INTE 0x4
 #define PORTSC_CCS 0x1 // current connect status
 
 /* capability register */
 #define CAPLENGTH 0xFF
 #define HCSPARAMS1_MAXPORT 0xFF000000
 
-
-
-
 /* actual values of those control signals */
 #define ZERO 0 // for 64bit -> 32bit hacking FIXME
 /* operational register */
 #define USBSTS_CNR_READY 0 
-#define USBCMD_RS_RUN 1 
-#define USBCMD_RESET_RESET 2 
-#define PORTSC_CCS_CONNECT 1
-
-/* capability register */
-
 
 /* helper macros */
 #define REPORT(s) print("*** xHCI: %s ***\n", s); 
@@ -802,7 +794,7 @@ xhcireset(Ctlr *ctlr)
     ilock(ctlr);
     
     print("xhci with bar = %#ux reset\n", (uint)ctlr->xhci);
-    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RESET, USBCMD_RESET_RESET);/* global reset */
+    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RESET, 2);/* global reset */
     
     i = 0; 
     while (xhcireg_rd(ctlr, USBSTS_OFF, USBSTS_CNR) != USBSTS_CNR_READY) {
@@ -823,7 +815,7 @@ port_new_attach(Ctlr *ctlr)
 {
     uint i; 
     for (i = 0; i < ctlr->num_port; i++) {
-        if (xhcireg_rd(ctlr, (PORTSC_OFF+i*PORTSC_ENUM_OFF), PORTSC_CCS) == PORTSC_CCS_CONNECT) {
+        if (xhcireg_rd(ctlr, (PORTSC_OFF+i*PORTSC_ENUM_OFF), PORTSC_CCS) == 1) {
             return i; 
         }
     }
@@ -907,9 +899,9 @@ reset(Hci *hp)
 
 #ifdef XHCI_DEBUG
     print("printing all capabilities\n");
-    int i = 0; 
-    for (; i < 8; i++) {
-        print("cap[%d] = 0x%#ux\n", i, xhcireg_rd(ctlr, (i<<2), (uint)-1));
+    int j = 0; 
+    for (; j < 8; j++) {
+        print("cap[%d] = 0x%#ux\n", j, xhcireg_rd(ctlr, (j<<2), (uint)-1));
     }
 #endif
 
@@ -958,7 +950,9 @@ reset(Hci *hp)
     xhcireg_wr(ctlr, (CRCR_OFF + 4), 0xFFFFFFFF, ZERO);
 
     // tell the controller to run
-    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RS, USBCMD_RS_RUN);
+    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_INTE, 1);
+    print("turn on host interrupt\n"); 
+    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RS, 1);
     print("controller is on\n"); 
     /*
      * Linkage to the generic HCI driver.
