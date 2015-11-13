@@ -36,7 +36,7 @@ int debug = 0;
 /* register offsets (from base address of Capability Register) */
 /* operational register */
 // this definitely does not work if we have > 1 controller
-#define OPREG_OFF caplength // TODO will this work?
+#define OPREG_OFF caplength 
 #define CONFIG_OFF (OPREG_OFF + 0x38)
 #define USBSTS_OFF (OPREG_OFF + 0x04)
 #define DCBAAP_OFF (OPREG_OFF + 0x30)
@@ -77,9 +77,6 @@ int debug = 0;
 #define ZERO 0 // for 64bit -> 32bit hacking FIXME
 /* operational register */
 #define USBSTS_CNR_READY 0 
-
-/* helper macros */
-#define REPORT(s) print("*** xHCI: %s ***\n", s); 
 
 
 /* declarations */
@@ -572,7 +569,7 @@ handle_attachment(Ctlr *ctlr, Trb *psce) {
     // read port status
     uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
-    print("port status 0x%#ux\n", port_sts);
+    print("port status %#ux\n", port_sts);
     return; 
 }
 
@@ -580,10 +577,10 @@ handle_attachment(Ctlr *ctlr, Trb *psce) {
 static void
 dump_trb(Trb *t) {
     assert(t != nil); 
-    print("qwTrb0 (data ptr low): 0x%#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
-    print("qwTrb0 (data ptr high): 0x%#ux\n", (uint)(t->qwTrb0 >> 32));
-    print("dwTrb2 (status): 0x%#ux\n", t->dwTrb2);
-    print("dwTrb3 (status): 0x%#ux\n", t->dwTrb3);
+    print("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
+    print("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
+    print("dwTrb2 (status): %#ux\n", t->dwTrb2);
+    print("dwTrb3 (status): %#ux\n", t->dwTrb3);
     print("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
     return; 
 }
@@ -976,27 +973,27 @@ reset(Hci *hp)
     hp->type = "xhci";
 
     // poll for CCS = 1
-    Trb *event_trb; 
-    uint cycle_bit; 
-    while(1) {
-        delay(10);
-        int new;
-        if ((new = port_new_attach(ctlr)) != -1) {
-            print("new device attached at %d\n", new);
-            
-            // dump the event TRB    
-            event_trb = (Trb *)ctlr->event_deq; 
-            // check cycle bit before processing
-            cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
-            if (cycle_bit != ctlr->event_cycle_bit) {
-                ctlr->event_cycle_bit = cycle_bit;  
-                break; 
-            }
-            // now process this event
-            print("received event TRB: \n");
-            dump_trb(event_trb);            
-        }
-    }
+    //Trb *event_trb; 
+    //uint cycle_bit; 
+    //while(1) {
+    //    delay(10);
+    //    int new;
+    //    if ((new = port_new_attach(ctlr)) != -1) {
+    //        print("new device attached at %d\n", new);
+    //        
+    //        // dump the event TRB    
+    //        event_trb = (Trb *)ctlr->event_deq; 
+    //        // check cycle bit before processing
+    //        cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
+    //        if (cycle_bit != ctlr->event_cycle_bit) {
+    //            ctlr->event_cycle_bit = cycle_bit;  
+    //            break; 
+    //        }
+    //        // now process this event
+    //        print("received event TRB: \n");
+    //        dump_trb(event_trb);            
+    //    }
+    //}
     // TODO remove the test code
 
 
