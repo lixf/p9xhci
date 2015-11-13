@@ -36,7 +36,7 @@ int debug = 0;
 /* register offsets (from base address of Capability Register) */
 /* operational register */
 // this definitely does not work if we have > 1 controller
-#define OPREG_OFF (caplength+1) // TODO will this work?
+#define OPREG_OFF caplength // TODO will this work?
 #define CONFIG_OFF (OPREG_OFF + 0x38)
 #define USBSTS_OFF (OPREG_OFF + 0x04)
 #define DCBAAP_OFF (OPREG_OFF + 0x30)
@@ -976,6 +976,8 @@ reset(Hci *hp)
     hp->type = "xhci";
 
     // poll for CCS = 1
+    Trb *event_trb; 
+    uint cycle_bit; 
     while(1) {
         delay(10);
         int new;
