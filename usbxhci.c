@@ -624,6 +624,7 @@ interrupt(Ureg*, void *arg)
         // FIXME the only event we handle now is port connection status change
         //if (trb_type == EVENT_PORT_STS_CHANGE) {
         handle_attachment(ctlr, event_trb); 
+        break;
 
         ctlr->event_deq += sizeof(struct Trb); 
     }
@@ -814,6 +815,7 @@ static int
 port_new_attach(Ctlr *ctlr)
 {
     uint i; 
+    // check all the ports
     for (i = 0; i < ctlr->num_port; i++) {
         if (xhcireg_rd(ctlr, (PORTSC_OFF+i*PORTSC_ENUM_OFF), PORTSC_CCS) == 1) {
             return i; 
@@ -973,14 +975,26 @@ reset(Hci *hp)
     hp->debug = setdebug;
     hp->type = "xhci";
 
-    // test the controller is alive and running by reading some values
-    //while(1) {
-    //    delay(10);
-    //    int new;
-    //    if ((new = port_new_attach(ctlr)) != -1) {
-    //        print("new device attached at %d\n", new);
-    //    }
-    //}
+    // poll for CCS = 1
+    while(1) {
+        delay(10);
+        int new;
+        if ((new = port_new_attach(ctlr)) != -1) {
+            print("new device attached at %d\n", new);
+            
+            // dump the event TRB    
+            event_trb = (Trb *)ctlr->event_deq; 
+            // check cycle bit before processing
+            cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
+            if (cycle_bit != ctlr->event_cycle_bit) {
+                ctlr->event_cycle_bit = cycle_bit;  
+                break; 
+            }
+            // now process this event
+            print("received event TRB: \n");
+            dump_trb(event_trb);            
+        }
+    }
     // TODO remove the test code
 
 
