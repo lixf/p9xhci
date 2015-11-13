@@ -113,6 +113,7 @@ struct Ctlr {
     uint event_deq_phys;
     uint event_deq_virt;
     uint event_segtable_phys; 
+    uint event_segtable_virt; 
     // runtime values
     uint event_cycle_bit;
 };
@@ -773,15 +774,19 @@ xhcimeminit(Ctlr *ctlr)
     
     // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
     Trb *event_ring_bar = (Trb *)upaalloc(sizeof(struct Trb) * 16, _4KB); 
+    print("allocated physical memory for event ring\n");
     eventSegTabEntry *event_segtable = (eventSegTabEntry *)upaalloc(sizeof(struct EventSegTabEntry), _64B); 
+    print("allocated physical memory for segtable\n");
 
     ctlr->event_segtable_phys = (uint) event_segtable; 
-    event_segtable->ringSegBar  = (uvlong)event_ring_bar;
-    event_segtable->ringSegSize = 16;
+    ctlr->event_segtable_virt = (uint) vmap((uint)event_segtable, sizeof(struct EventSegTabEntry));
+    ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegBar  = (uvlong)event_ring_bar;
+    ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegSize = 16;
     // set deq ptr to the first trb in the event ring
     ctlr->event_deq_phys = (uint) event_ring_bar; 
     ctlr->event_deq_virt = vmap((uint)event_ring_bar, sizeof(struct Trb) * 16);
     ctlr->event_cycle_bit = 0; 
+    print("event ring allocation done\n");
     
     // allocate the command ring and set up the pointers
     Trb *cmd_ring_bar = (Trb *)xspanalloc((sizeof(struct Trb) * CMD_RING_SIZE), _4KB, _4KB); 
