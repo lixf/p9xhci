@@ -110,8 +110,9 @@ struct Ctlr {
     // set up values
     uint devctx_bar; 
     uint cmd_ring_bar;  
-    uint event_deq; 
-    uint event_segtable; 
+    uint event_deq_phys;
+    uint event_deq_virt;
+    uint event_segtable_phys; 
     // runtime values
     uint event_cycle_bit;
 };
@@ -771,13 +772,15 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->devctx_bar = ((uint)dcbaap & 0xFFFFFFFF); 
     
     // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
-    Trb *event_ring_bar = (Trb *)xspanalloc(sizeof(struct Trb) * 16, _4KB, _4KB); 
-    eventSegTabEntry *event_segtable = (eventSegTabEntry *)xspanalloc(sizeof(struct EventSegTabEntry), _64B, _64B); 
+    Trb *event_ring_bar = (Trb *)upaalloc(sizeof(struct Trb) * 16, _4KB); 
+    eventSegTabEntry *event_segtable = (eventSegTabEntry *)upaalloc(sizeof(struct EventSegTabEntry), _64B); 
+
+    ctlr->event_segtable_phys = (uint) event_segtable; 
     event_segtable->ringSegBar  = (uvlong)event_ring_bar;
     event_segtable->ringSegSize = 16;
-    ctlr->event_segtable = (uint) event_segtable; 
     // set deq ptr to the first trb in the event ring
-    ctlr->event_deq = (uint) event_ring_bar; 
+    ctlr->event_deq_phys = (uint) event_ring_bar; 
+    ctlr->event_deq_virt = vmap(event_ring_bar, sizeof(struct Trb) * 16);
     ctlr->event_cycle_bit = 0; 
     
     // allocate the command ring and set up the pointers
@@ -930,13 +933,13 @@ reset(Hci *hp)
    
     // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
-    print("configured event ring size\n"); 
-    xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_deq); // [2:0] used by xHC, [3] is Event Handle Busy TODO
+    print("configured event segment table size %d\n", xhcireg_rd(ctlr, ERSTSZ_OFF, 0xFFFF)); 
+    xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_deq_phys); // [2:0] used by xHC, [3] is Event Handle Busy TODO
     xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, 0); 
-    print("configured event ring deq ptr\n"); 
-    xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable); // [5:0] is reserved 
+    print("configured event ring deq ptr %#ux\n", (uint)xhcireg_rd(ctlr, ERDP_OFF, 0xFFFFFFFF)); 
+    xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable_phys); // [5:0] is reserved 
     xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
-    print("configured event ring bar\n"); 
+    print("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ERSTBA_OFF, 0xFFFFFFFF)); 
     // enable interrupt and TODO: disable MSI/MSIX
     // set interrupt enable = 1
     xhcireg_wr(ctlr, INTE_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
@@ -973,27 +976,28 @@ reset(Hci *hp)
     hp->type = "xhci";
 
     // poll for CCS = 1
-    //Trb *event_trb; 
-    //uint cycle_bit; 
-    //while(1) {
-    //    delay(10);
-    //    int new;
-    //    if ((new = port_new_attach(ctlr)) != -1) {
-    //        print("new device attached at %d\n", new);
-    //        
-    //        // dump the event TRB    
-    //        event_trb = (Trb *)ctlr->event_deq; 
-    //        // check cycle bit before processing
-    //        cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
-    //        if (cycle_bit != ctlr->event_cycle_bit) {
-    //            ctlr->event_cycle_bit = cycle_bit;  
-    //            break; 
-    //        }
-    //        // now process this event
-    //        print("received event TRB: \n");
-    //        dump_trb(event_trb);            
-    //    }
-    //}
+    Trb *event_trb; 
+    uint cycle_bit; 
+    while(1) {
+        delay(10);
+        int new;
+        if ((new = port_new_attach(ctlr)) != -1) {
+            print("new device attached at %d\n", new);
+            
+            // dump the event TRB    
+            event_trb = (Trb *)ctlr->event_deq_virt; 
+            // check cycle bit before processing
+            cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
+            if (cycle_bit != ctlr->event_cycle_bit) {
+                ctlr->event_cycle_bit = cycle_bit;  
+                break; 
+            }
+            // now process this event
+            print("received event TRB: \n");
+            dump_trb(event_trb);            
+            break;
+        }
+    }
     // TODO remove the test code
 
 
