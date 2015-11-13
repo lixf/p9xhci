@@ -784,7 +784,7 @@ xhcimeminit(Ctlr *ctlr)
     ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegSize = 16;
     // set deq ptr to the first trb in the event ring
     ctlr->event_deq_phys = (uint) event_ring_bar; 
-    ctlr->event_deq_virt = vmap((uint)event_ring_bar, sizeof(struct Trb) * 16);
+    ctlr->event_deq_virt = (uint)vmap((uint)event_ring_bar, sizeof(struct Trb) * 16);
     ctlr->event_cycle_bit = 0; 
     print("event ring allocation done\n");
     
@@ -995,7 +995,7 @@ reset(Hci *hp)
             cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
             if (cycle_bit != ctlr->event_cycle_bit) {
                 ctlr->event_cycle_bit = cycle_bit;  
-                break; 
+                //break; 
             }
             // now process this event
             print("received event TRB: \n");
