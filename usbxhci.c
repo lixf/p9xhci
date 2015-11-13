@@ -608,7 +608,7 @@ interrupt(Ureg*, void *arg)
     
     while (1) {
         // process all the events until the cycle bit differs
-        event_trb = (Trb *)ctlr->event_deq; 
+        event_trb = (Trb *)ctlr->event_deq_virt; 
         // check cycle bit before processing
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
         if (cycle_bit != ctlr->event_cycle_bit) {
@@ -624,7 +624,7 @@ interrupt(Ureg*, void *arg)
         handle_attachment(ctlr, event_trb); 
         break;
 
-        ctlr->event_deq += sizeof(struct Trb); 
+        ctlr->event_deq_virt += sizeof(struct Trb); 
     }
 
 	iunlock(ctlr);
@@ -780,7 +780,7 @@ xhcimeminit(Ctlr *ctlr)
     event_segtable->ringSegSize = 16;
     // set deq ptr to the first trb in the event ring
     ctlr->event_deq_phys = (uint) event_ring_bar; 
-    ctlr->event_deq_virt = vmap(event_ring_bar, sizeof(struct Trb) * 16);
+    ctlr->event_deq_virt = vmap((uint)event_ring_bar, sizeof(struct Trb) * 16);
     ctlr->event_cycle_bit = 0; 
     
     // allocate the command ring and set up the pointers
