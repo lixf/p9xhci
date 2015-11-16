@@ -992,7 +992,7 @@ reset(Hci *hp)
         int new;
         if ((new = port_new_attach(ctlr)) != -1) {
             print("new device attached at %d\n", new);
-            
+            print("port status register %#ux\n", xhcireg_rd(ctlr, (PORTSC_OFF+new*PORTSC_ENUM_OFF), 0xFFFFFFFF)) {
             // dump the event TRB    
             event_trb = (Trb *)ctlr->event_deq_virt; 
             // check cycle bit before processing
