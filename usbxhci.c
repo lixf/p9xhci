@@ -773,22 +773,22 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->devctx_bar = ((uint)dcbaap & 0xFFFFFFFF); 
     
     // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
-    Trb *event_ring_bar = (Trb *)upaalloc(sizeof(struct Trb) * 16, _4KB); 
-    print("allocated physical memory for event ring %#ux\n", (uint)event_ring_bar);
-    eventSegTabEntry *event_segtable = (eventSegTabEntry *)upaalloc(sizeof(struct EventSegTabEntry), _64B); 
-    print("allocated physical memory for segtable %#ux\n", (uint)event_segtable);
+    Trb *event_ring_bar = (Trb *)mallocalign(sizeof(struct Trb) * 16, _4KB, 0, 0); // VA
+    print("allocated virtual memory for event ring %#ux\n", (uint)event_ring_bar);
+    eventSegTabEntry *event_segtable = (eventSegTabEntry *)mallocalign(sizeof(struct EventSegTabEntry), _64B, 0, 0); 
+    print("allocated virtual memory for segtable %#ux\n", (uint)event_segtable);
 
-    ctlr->event_segtable_phys = (uint) event_segtable; 
-    ctlr->event_segtable_virt = (uint) vmap((uint)event_segtable, sizeof(struct EventSegTabEntry));
-    print("vmap for segtable %#ux\n", (uint)ctlr->event_segtable_virt);
-    ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegBar  = (uvlong)event_ring_bar;
+    ctlr->event_segtable_phys = (uint) PCIWADDR(event_segtable);
+    ctlr->event_segtable_virt = (uint)event_segtable;
+    print("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable_phys);
+    ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
     ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegSize = 16;
     
     // set deq ptr to the first trb in the event ring
-    ctlr->event_deq_phys = (uint) event_ring_bar; 
-    ctlr->event_deq_virt = (uint)vmap((uint)event_ring_bar, sizeof(struct Trb) * 16);
+    ctlr->event_deq_phys = (uint) PCIWADDR(event_ring_bar); 
+    ctlr->event_deq_virt = (uint)event_ring_bar;
     memset((void *)ctlr->event_deq_virt, 0, sizeof(struct Trb) * 16);
-    print("vmap for event ring deq  %#ux\n", (uint)ctlr->event_deq_virt);
+    print("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_deq_phys);
     ctlr->event_cycle_bit = 0; 
     print("event ring allocation done\n");
     
