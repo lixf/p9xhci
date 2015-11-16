@@ -961,7 +961,7 @@ reset(Hci *hp)
     xhcireg_wr(ctlr, (CRCR_OFF + 4), 0xFFFFFFFF, ZERO);
 
     // tell the controller to run
-    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_INTE, 1);
+    xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_INTE, 4);
     print("turn on host interrupt\n"); 
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RS, 1);
     print("controller is on\n"); 
@@ -992,7 +992,8 @@ reset(Hci *hp)
         int new;
         if ((new = port_new_attach(ctlr)) != -1) {
             print("new device attached at %d\n", new);
-            print("port status register %#ux\n", xhcireg_rd(ctlr, (PORTSC_OFF+new*PORTSC_ENUM_OFF), 0xFFFFFFFF)) {
+            print("port status register %#ux\n", xhcireg_rd(ctlr, (PORTSC_OFF+new*PORTSC_ENUM_OFF), 0xFFFFFFFF));
+            print("usb sts %#ux\n", xhcireg_rd(ctlr, USBSTS_OFF, 0xFFFFFFFF));
             // dump the event TRB    
             event_trb = (Trb *)ctlr->event_deq_virt; 
             // check cycle bit before processing
