@@ -507,6 +507,13 @@ dump(Hci *hp)
 /**************************************************
  * Top level interface functions -- functionality * 
  **************************************************/
+/** @brief Some things need to be done here instead of the reset function
+ *  TODO find out what those things are
+ *  In OHCI: 
+ *      1. enable interrupts
+ *      2. enable all the ports
+ *      3. set frames
+ **/
 static void
 init(Hci *hp)
 {
@@ -514,25 +521,107 @@ init(Hci *hp)
     return; 
 }
 
+
+/** @brief This function sends a software reset to the port
+ *  Currently this is used for enablement of USB2 device compatibility.
+ *  Not sure when this is called from devusb layer. 
+ **/
 static int
 portreset(Hci *hp, int port, int on)
 {
     dprint("xhci portreset\n");
-    return -1; 
+    Ctlr *ctlr;
+    
+    if(on == 0) {
+        return 0;
+    }
+    
+    ctlr = hp->aux;
+    qlock(&ctlr->portlck);
+    if(waserror()){
+    	qunlock(&ctlr->resetl);
+    	nexterror();
+    }
+    ilock(ctlr);
+    // now send the reset command to the port controlling register
+    uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
+    xhcireg_wr(ctlr, port_offset, 0x10, 0x10); 
+    int wait = 0;
+    while (xhcireg_rd(ctlr, port_offset, 0x10)) {
+        delay(10);
+        wait++; 
+        if (wait == 100) {
+            dprint("xhci port %d reset timeout", port);
+            iunlock(ctlr);
+            qunlock(&ctlr->portlck);
+            return -1;
+        }
+    }
+
+    iunlock(ctlr);
+    qunlock(&ctlr->portlck);
+    return 0;
 }
 
+
+
+/** @berief Enabling a port is ignored, disabling a port is issued
+ *  
+ *  The USB3.0 spec does not allow/require software to enable a port, unlike
+ *  the UHCI/OHCI spec. Only the XHC can enable a port upon a attachment event.
+ *  However, we still allow disabling of a port through this function. 
+ **/
 static int
 portenable(Hci *hp, int port, int on)
-{
+{ 
+	Ctlr *ctlr;
+	ctlr = hp->aux;
+    qlock(&ctlr->portlck);
+
     dprint("xhci portenable\n");
-    return -1; 
+    if (on == 1) {
+        dprint("xhci cannot allow enabling of a port\n");
+        qunlock(&ctlr->portlck);
+        return -1;
+    } else {
+        // send a disable command to PORTSTS register
+        uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
+        uint port_sts = xhcireg_rd(ctlr, port_offset, 0x2);  //read the port enable bit
+        if (port_sts == 0) {
+            qunlock(&ctlr->portlck);
+            return 0; 
+        } else {
+            xhcireg_rd(ctlr, port_offset, 0x2, 0x2);
+            delay(5); 
+            if (xhcireg_rd(ctlr, port_offset, 0x2)) {
+                dprint("port still enabled\n");
+                qunlock(&ctlr->portlck);
+                return -1;
+            }
+        }
+    }
+    qunlock(&ctlr->portlck);
+    return 0; 
 }
 
 static int
 portstatus(Hci *hp, int port)
 {
-    dprint("xhci portstatus\n");
-    return -1;
+	/*
+	 * We must return status bits as a
+	 * get port status hub request would do.
+	 */
+
+    /*
+     * What's the format??
+     */
+	Ctlr *ctlr;
+	ctlr = hp->aux;
+    
+    uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
+    uint port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF);
+    dprint("xhci portstatus %#ux for port num %d\n", port_sts, port);
+    return port_sts;
 }
 
 static void
@@ -565,13 +654,20 @@ epread(Ep *ep, void *a, long count)
 
 
 /** @brief this function handles the port status change event TRB
+ *  This function detects if the port is in polling state for USB2 devices
+ *  and initiate the port reset sequence to verify the correct state transition
  *  
  *  @param psce Port Status Change Event trb
  **/
+#define PORTSTS_PLS 0x1E0 // [8:5]
+#define PLS_POLLING 0x7
+#define PLS_RXDETECT 0x5
 static void 
-handle_attachment(Ctlr *ctlr, Trb *psce) {
+handle_attachment(Hci *hp, Trb *psce) {
+    Ctlr *ctlr;
     uint port_sts; 
-  
+    
+    ctlr = hp->aux;
     // look for which port caused the attachment event
     uint port_id = psce->qwTrb0 >> 24 & 0xFF;
     dprint("port id %u caused attachment event\n", port_id);
@@ -580,6 +676,17 @@ handle_attachment(Ctlr *ctlr, Trb *psce) {
     uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
     dprint("port status %#ux\n", port_sts);
+
+    // read port link state to detect USB2 devices
+    if (xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) == PLS_POLLING) {
+        // this is a USB2 device
+        portreset(hp, port_id, 1);
+    }
+
+    if ((xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) >> 5)  > 3) {
+        dprint("USB device is not in the correct state\n");
+    }
+
     return; 
 }
 
@@ -631,7 +738,7 @@ interrupt(Ureg*, void *arg)
         dump_trb(event_trb);
 
         // the only event we handle now is port connection status change
-        handle_attachment(ctlr, event_trb); 
+        handle_attachment(hp, event_trb); 
         // FIXME
         // should handle more than one events later for chained TRBs
         break;
