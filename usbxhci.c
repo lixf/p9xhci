@@ -57,6 +57,7 @@ int debug = 1;
 /* capability register */
 #define CAPLENGTH_OFF (0x0)
 #define HCSPARAMS1_OFF (0x4)
+#define DB_OFF (0x14)
 
 /* runtime registers */
 #define RTS_OFF (0x18)              // Runtime Space offset (from Bar)
@@ -101,6 +102,14 @@ struct Packed16B;   // Generic packed 16-byte -- used for TRBs
 struct EventSegTabEntry;    // event ring segment table entry 
 
 /* definitions */
+struct Sw_ring {
+    // defines the fields for a TRB ring
+    uint phys;  
+    uint virt;
+    uint curr;  // the current pointer into the structure
+    char cycle; 
+};
+
 struct Ctlr {
     Lock; 
     QLock portlck; 
@@ -114,17 +123,14 @@ struct Ctlr {
     // read from hw
     uint caplength; 
     uint num_port; 
+    uint db_off; 
 
     /* software values */
     // set up values
     uint devctx_bar; 
-    uint cmd_ring_bar;  
-    uint event_deq_phys;
-    uint event_deq_virt;
-    uint event_segtable_phys; 
-    uint event_segtable_virt; 
-    // runtime values
-    uint event_cycle_bit;
+    struct Sw_ring cmd_ring;  
+    struct Sw_ring event_ring;
+    struct Sw_ring event_segtable;
 };
 
 struct Trb {
@@ -477,15 +483,23 @@ xhcireg_rd(Ctlr *ctlr, uint offset, uint mask)
 static Ctlr* ctlrs[Nhcis];
 
 
-// TRB functions
-static void 
-send_command() {
-    return; 
+static void inline
+ring_bell(Ctlr *ctlr, uint index, uint db) {
+    assert(index < ctlr->max_slot);
+    xhcireg_wr(ctlr, (ctlr->db_off + index * sizeof(uint)), 0xFFFFFFFF, db);
 }
 
 
-
-
+// TRB functions
+static void inline 
+send_command(Ctlr *ctlr, Trb *trb) {
+    
+    // what if there's some unfinished commands before the new command? TODO
+    // ctlr should probably have a index pointer to the next free slot..
+    memcpy((Trb *)ctlr->cmd_ring.virt, &slot_cmd, sizeof(struct Trb));
+    
+    return; 
+}
 
 
 
@@ -687,12 +701,33 @@ handle_attachment(Hci *hp, Trb *psce) {
         dprint("USB device is not in the correct state\n");
     }
 
+#ifdef XHCI_DEBUG
+    port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
+    dprint("port status %#ux\n", port_sts);
+#endif
+
+    // now issue an Enable Slot Command
+    struct Trb slot_cmd; 
+    slot_cmd.qwTrb0 = 0;
+    slot_cmd.dwTrb2 = 0; 
+    uint trb3 = TYPE_SET(9);                // enable slot
+    trb3 |= EP_SET(ctlr->ext_cap.slot_type);// slot type
+    trb3 |= ctrl->cmd_ring.cycle;           // cycle bit
+    slot_cmd.dwTrb3 = trb3; 
+    
+    send_command(ctlr, &slot_cmd);    
+    
+    // now ring the door bell for the XHC
+    uint db = 0; // db stream == 0, db target == 0
+    ring_bell(ctlr, 0, db); 
+
     return; 
 }
 
 
 static void
 dump_trb(Trb *t) {
+    dprint("received event TRB: \n");
     assert(t != nil); 
     dprint("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
     dprint("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
@@ -733,17 +768,27 @@ interrupt(Ureg*, void *arg)
             ctlr->event_cycle_bit = cycle_bit;  
             break; 
         }
+        
         // now process this event
-        dprint("received event TRB: \n");
-        dump_trb(event_trb);
 
-        // the only event we handle now is port connection status change
-        handle_attachment(hp, event_trb); 
-        // FIXME
-        // should handle more than one events later for chained TRBs
-        break;
+#ifdef XHCI_DEBUG
+        dump_trb(event_trb);
+#endif
+        int handled = 0;     
+        uint trb_type = TYPE_GET(event_trb.dwTrb3);
+        switch (trb_type) {
+            case 34: // port status change
+                handle_attachment(hp, event_trb); 
+                handled = 1; 
+                break; 
+            case 33: // command complete
+                // TODO handle
+                dprint("received a command complete event\n");
+                break;
+        }
 
         ctlr->event_deq_virt += sizeof(struct Trb); 
+        if (handled) break; 
     }
 
     // clear the interrupt pending bit
@@ -928,9 +973,15 @@ xhcimeminit(Ctlr *ctlr)
 
     dprint("event ring allocation done\n");
     
-    // allocate the command ring and set up the pointers
+    // allocate the command ring
     Trb *cmd_ring_bar = (Trb *)mallocalign((sizeof(struct Trb) * CMD_RING_SIZE), _4KB, _4KB); 
-    ctlr->cmd_ring_bar = (uint)PCIWADDR(cmd_ring_bar);
+    ctlr->cmd_ring.phys = (uint)PCIWADDR(cmd_ring_bar);
+    ctlr->cmd_ring.virt = (uint)cmd_ring_bar;
+    ctlr->cmd_ring.curr = (uint)cmd_ring_bar;
+
+    // setup doorbell array
+
+
 }
 
 
@@ -1051,6 +1102,7 @@ reset(Hci *hp)
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
     ctlr->oper = (uint)ctlr->xhci + caplength; 
     ctlr->runt = (uint)ctlr->xhci + runtime_off;
+    ctlr->db_off = xhcireg_rd(ctlr, DB_OFF, 0xFFFFFFFC)
 
 #ifdef XHCI_DEBUG
     dprint("printing all capabilities\n");
@@ -1098,7 +1150,7 @@ reset(Hci *hp)
     dprint("interrupt is on\n"); 
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
-    xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring_bar);
+    xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring.phys);
 
     // CRCR_CMDRING_HI = 0
     xhcireg_wr(ctlr, (CRCR_OFF + 4), 0xFFFFFFFF, ZERO);
@@ -1126,32 +1178,6 @@ reset(Hci *hp)
     hp->shutdown = shutdown;
     hp->debug = setdebug;
     hp->type = "xhci";
-
-    // poll for CCS = 1
-    //Trb *event_trb; 
-    //uint cycle_bit; 
-    //while(1) {
-    //    delay(10);
-    //    int new;
-    //    if ((new = port_new_attach(ctlr)) != -1) {
-    //        dprint("new device attached at %d\n", new);
-    //        dprint("port status register %#ux\n", xhcireg_rd(ctlr, (PORTSC_OFF+new*PORTSC_ENUM_OFF), 0xFFFFFFFF));
-    //        dprint("usb sts %#ux\n", xhcireg_rd(ctlr, USBSTS_OFF, 0xFFFFFFFF));
-    //        // dump the event TRB    
-    //        event_trb = (Trb *)ctlr->event_deq_virt; 
-    //        // check cycle bit before processing
-    //        cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
-    //        if (cycle_bit != ctlr->event_cycle_bit) {
-    //            ctlr->event_cycle_bit = cycle_bit;  
-    //            //break; 
-    //        }
-    //        // now process this event
-    //        dprint("received event TRB: \n");
-    //        dump_trb(event_trb);            
-    //        break;
-    //    }
-    //}
-    // TODO remove the test code
 
 
     return 0;
