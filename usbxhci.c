@@ -761,7 +761,7 @@ interrupt(Ureg*, void *arg)
     assert(xhcireg_rd(ctlr, IMAN_OFF, 0x1) == 1);
     while (1) {
         // process all the events until the cycle bit differs
-        event_trb = (Trb *)ctlr->event_deq_virt; 
+        event_trb = (Trb *)ctlr->event_ring.curr; 
         // check cycle bit before processing
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
         if (cycle_bit != ctlr->event_cycle_bit) {
@@ -787,7 +787,7 @@ interrupt(Ureg*, void *arg)
                 break;
         }
 
-        ctlr->event_deq_virt += sizeof(struct Trb); 
+        ctlr->event_ring.curr += sizeof(struct Trb); 
         if (handled) break; 
     }
 
@@ -958,18 +958,19 @@ xhcimeminit(Ctlr *ctlr)
     eventSegTabEntry *event_segtable = (eventSegTabEntry *)mallocalign(sizeof(struct EventSegTabEntry), _64B, 0, 0); 
     dprint("allocated virtual memory for segtable %#ux\n", (uint)event_segtable);
 
-    ctlr->event_segtable_phys = (uint) PCIWADDR(event_segtable);
-    ctlr->event_segtable_virt = (uint)event_segtable;
+    ctlr->event_segtable.phys = (uint) PCIWADDR(event_segtable);
+    ctlr->event_segtable.virt = (uint)event_segtable;
     dprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable_phys);
-    ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
-    ((eventSegTabEntry *)ctlr->event_segtable_virt)->ringSegSize = 16;
+    ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
+    ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegSize = 16;
     
     // set deq ptr to the first trb in the event ring
-    ctlr->event_deq_phys = (uint) PCIWADDR(event_ring_bar); 
-    ctlr->event_deq_virt = (uint)event_ring_bar;
-    memset((void *)ctlr->event_deq_virt, 0, sizeof(struct Trb) * 16);
-    dprint("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_deq_phys);
-    ctlr->event_cycle_bit = 0; 
+    ctlr->event_ring.phys = (uint) PCIWADDR(event_ring_bar); 
+    ctlr->event_ring.virt = (uint)event_ring_bar;
+    ctlr->event_ring.curr = (uint)event_ring_bar;
+    memset((void *)ctlr->event_ring.virt, 0, sizeof(struct Trb) * 16);
+    dprint("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_ring.phys);
+    ctlr->event_ring.cycle = 0; 
 
     dprint("event ring allocation done\n");
     
@@ -1139,12 +1140,15 @@ reset(Hci *hp)
     // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
     dprint("configured event segment table size %d\n", xhcireg_rd(ctlr, ERSTSZ_OFF, 0xFFFF)); 
-    xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_deq_phys); // [2:0] used by xHC, [3] is Event Handle Busy TODO
+    
+    xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_ring.phys);
     xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, 0); 
     dprint("configured event ring deq ptr %#ux\n", (uint)xhcireg_rd(ctlr, ERDP_OFF, 0xFFFFFFFF)); 
-    xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable_phys); // [5:0] is reserved 
+
+    xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable.phys); // [5:0] is reserved 
     xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
     dprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ERSTBA_OFF, 0xFFFFFFFF)); 
+    
     // set interrupt enable = 1
     xhcireg_wr(ctlr, IMAN_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
     dprint("interrupt is on\n"); 
