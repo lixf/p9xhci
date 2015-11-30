@@ -497,11 +497,11 @@ send_command(Ctlr *ctlr, Trb *trb) {
     
     // what if there's some unfinished commands before the new command? TODO
     // ctlr should probably have a index pointer to the next free slot..
-    if (ctlr->cmd_ring.virt == 0 || trb == NULL) {
+    if (ctlr->cmd_ring.virt == 0 || trb == nil) {
         panic("xhci send command internal error\n");
+    } else {
+        memcpy((Trb *)ctlr->cmd_ring.virt, trb, sizeof(struct Trb));
     }
-    memcpy((Trb *)ctlr->cmd_ring.virt, trb, sizeof(struct Trb));
-    
     return; 
 }
 
@@ -1104,7 +1104,7 @@ reset(Hci *hp)
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
     ctlr->oper = (uint)ctlr->xhci + caplength; 
     ctlr->runt = (uint)ctlr->xhci + runtime_off;
-    ctlr->db_off = xhcireg_rd(ctlr, DB_OFF, 0xFFFFFFFC)
+    ctlr->db_off = xhcireg_rd(ctlr, DB_OFF, 0xFFFFFFFC);
     ctlr->max_slot = 2;
 
 #ifdef XHCI_DEBUG
