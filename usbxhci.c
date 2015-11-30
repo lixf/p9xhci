@@ -124,6 +124,7 @@ struct Ctlr {
     uint caplength; 
     uint num_port; 
     uint db_off; 
+    uint max_slot;
 
     /* software values */
     // set up values
@@ -496,7 +497,7 @@ send_command(Ctlr *ctlr, Trb *trb) {
     
     // what if there's some unfinished commands before the new command? TODO
     // ctlr should probably have a index pointer to the next free slot..
-    memcpy((Trb *)ctlr->cmd_ring.virt, &slot_cmd, sizeof(struct Trb));
+    memcpy((Trb *)ctlr->cmd_ring.virt, trb, sizeof(struct Trb));
     
     return; 
 }
@@ -553,10 +554,9 @@ portreset(Hci *hp, int port, int on)
     ctlr = hp->aux;
     qlock(&ctlr->portlck);
     if(waserror()){
-    	qunlock(&ctlr->resetl);
+    	qunlock(&ctlr->portlck);
     	nexterror();
     }
-    ilock(ctlr);
     // now send the reset command to the port controlling register
     uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
     xhcireg_wr(ctlr, port_offset, 0x10, 0x10); 
@@ -566,13 +566,11 @@ portreset(Hci *hp, int port, int on)
         wait++; 
         if (wait == 100) {
             dprint("xhci port %d reset timeout", port);
-            iunlock(ctlr);
             qunlock(&ctlr->portlck);
             return -1;
         }
     }
 
-    iunlock(ctlr);
     qunlock(&ctlr->portlck);
     return 0;
 }
@@ -605,7 +603,7 @@ portenable(Hci *hp, int port, int on)
             qunlock(&ctlr->portlck);
             return 0; 
         } else {
-            xhcireg_rd(ctlr, port_offset, 0x2, 0x2);
+            xhcireg_wr(ctlr, port_offset, 0x2, 0x2);
             delay(5); 
             if (xhcireg_rd(ctlr, port_offset, 0x2)) {
                 dprint("port still enabled\n");
@@ -711,8 +709,8 @@ handle_attachment(Hci *hp, Trb *psce) {
     slot_cmd.qwTrb0 = 0;
     slot_cmd.dwTrb2 = 0; 
     uint trb3 = TYPE_SET(9);                // enable slot
-    trb3 |= EP_SET(ctlr->ext_cap.slot_type);// slot type
-    trb3 |= ctrl->cmd_ring.cycle;           // cycle bit
+    // TODO trb3 |= EP_SET(ctlr->ext_cap.slot_type);// slot type
+    trb3 |= ctlr->cmd_ring.cycle;           // cycle bit
     slot_cmd.dwTrb3 = trb3; 
     
     send_command(ctlr, &slot_cmd);    
@@ -764,8 +762,8 @@ interrupt(Ureg*, void *arg)
         event_trb = (Trb *)ctlr->event_ring.curr; 
         // check cycle bit before processing
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
-        if (cycle_bit != ctlr->event_cycle_bit) {
-            ctlr->event_cycle_bit = cycle_bit;  
+        if (cycle_bit != ctlr->event_ring.cycle) {
+            ctlr->event_rint.cycle = cycle_bit;  
             break; 
         }
         
@@ -1104,6 +1102,7 @@ reset(Hci *hp)
     ctlr->oper = (uint)ctlr->xhci + caplength; 
     ctlr->runt = (uint)ctlr->xhci + runtime_off;
     ctlr->db_off = xhcireg_rd(ctlr, DB_OFF, 0xFFFFFFFC)
+    ctlr->max_slot = 2;
 
 #ifdef XHCI_DEBUG
     dprint("printing all capabilities\n");
@@ -1127,7 +1126,7 @@ reset(Hci *hp)
     dprint("configuring internal registers\n"); 
     
     // MAX_SLOT_EN == 2
-    xhcireg_wr(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN, 2);
+    xhcireg_wr(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN, ctlr->max_slot);
     dprint("readback: MAX_SLOT_EN: %d should be 2\n", xhcireg_rd(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN));
 
     // DCBAAP_LO = ctlr->devctx_bar
