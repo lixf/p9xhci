@@ -500,7 +500,12 @@ send_command(Ctlr *ctlr, Trb *trb) {
     if (ctlr == nil || ctlr->cmd_ring.virt == 0 || trb == nil) {
         panic("xhci send command internal error\n");
     } else {
-        memcpy((void *)ctlr->cmd_ring.virt, (void *)trb, sizeof(struct Trb));
+        // FIXME how do I use memcpy??
+        Trb *dst = (Trb *)ctlr->cmd_ring.virt;
+        Trb *src = (Trb *)trb;
+        dst->qwTrb0 = src->qwTrb0;
+        dst->dwTrb2 = src->dwTrb2;
+        dst->dwTrb3 = src->dwTrb3;
     }
     return; 
 }
