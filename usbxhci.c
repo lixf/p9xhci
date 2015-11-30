@@ -497,6 +497,9 @@ send_command(Ctlr *ctlr, Trb *trb) {
     
     // what if there's some unfinished commands before the new command? TODO
     // ctlr should probably have a index pointer to the next free slot..
+    if (ctlr->cmd_ring.virt == 0 || trb == NULL) {
+        panic("xhci send command internal error\n");
+    }
     memcpy((Trb *)ctlr->cmd_ring.virt, trb, sizeof(struct Trb));
     
     return; 
@@ -763,7 +766,7 @@ interrupt(Ureg*, void *arg)
         // check cycle bit before processing
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
         if (cycle_bit != ctlr->event_ring.cycle) {
-            ctlr->event_rint.cycle = cycle_bit;  
+            ctlr->event_ring.cycle = cycle_bit;  
             break; 
         }
         
@@ -773,7 +776,7 @@ interrupt(Ureg*, void *arg)
         dump_trb(event_trb);
 #endif
         int handled = 0;     
-        uint trb_type = TYPE_GET(event_trb.dwTrb3);
+        uint trb_type = TYPE_GET(event_trb->dwTrb3);
         switch (trb_type) {
             case 34: // port status change
                 handle_attachment(hp, event_trb); 
@@ -946,7 +949,7 @@ static void
 xhcimeminit(Ctlr *ctlr)
 {
     // allocate the DCBAAP TODO probably use PCIWADDR
-    packed32B **dcbaap = (packed32B **)mallocalign((sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, _64B); 
+    packed32B **dcbaap = (packed32B **)mallocalign((sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, 0, 0); 
     memset((void *)dcbaap, 0, (sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2));
     ctlr->devctx_bar = ((uint)PCIWADDR(dcbaap) & 0xFFFFFFFF); 
     
@@ -958,7 +961,7 @@ xhcimeminit(Ctlr *ctlr)
 
     ctlr->event_segtable.phys = (uint) PCIWADDR(event_segtable);
     ctlr->event_segtable.virt = (uint)event_segtable;
-    dprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable_phys);
+    dprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable.phys);
     ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
     ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegSize = 16;
     
@@ -973,7 +976,7 @@ xhcimeminit(Ctlr *ctlr)
     dprint("event ring allocation done\n");
     
     // allocate the command ring
-    Trb *cmd_ring_bar = (Trb *)mallocalign((sizeof(struct Trb) * CMD_RING_SIZE), _4KB, _4KB); 
+    Trb *cmd_ring_bar = (Trb *)mallocalign((sizeof(struct Trb) * CMD_RING_SIZE), _4KB, 0, 0); 
     ctlr->cmd_ring.phys = (uint)PCIWADDR(cmd_ring_bar);
     ctlr->cmd_ring.virt = (uint)cmd_ring_bar;
     ctlr->cmd_ring.curr = (uint)cmd_ring_bar;
