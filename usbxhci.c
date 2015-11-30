@@ -20,7 +20,7 @@
 #include"usb.h"
 
 
-#define dprint if(debug) print
+#define ddprint if(debug) print
 //#define diprint if(debug || iso->debug) print
 //#define ddiprint if(debug>1 || iso->debug>1) print
 //#define dqprint if(debug || (qh->io && qh->io->debug)) print
@@ -497,10 +497,10 @@ send_command(Ctlr *ctlr, Trb *trb) {
     
     // what if there's some unfinished commands before the new command? TODO
     // ctlr should probably have a index pointer to the next free slot..
-    if (ctlr->cmd_ring.virt == 0 || trb == nil) {
+    if (ctlr == nil || ctlr->cmd_ring.virt == 0 || trb == nil) {
         panic("xhci send command internal error\n");
     } else {
-        memcpy((Trb *)ctlr->cmd_ring.virt, trb, sizeof(struct Trb));
+        memcpy((void *)ctlr->cmd_ring.virt, (void *)trb, sizeof(struct Trb));
     }
     return; 
 }
@@ -535,7 +535,7 @@ dump(Hci *hp)
 static void
 init(Hci *hp)
 {
-    dprint("xhci init\n");
+    ddprint("xhci init\n");
     return; 
 }
 
@@ -547,7 +547,7 @@ init(Hci *hp)
 static int
 portreset(Hci *hp, int port, int on)
 {
-    dprint("xhci portreset\n");
+    ddprint("xhci portreset\n");
     Ctlr *ctlr;
     
     if(on == 0) {
@@ -568,7 +568,7 @@ portreset(Hci *hp, int port, int on)
         delay(10);
         wait++; 
         if (wait == 100) {
-            dprint("xhci port %d reset timeout", port);
+            ddprint("xhci port %d reset timeout", port);
             qunlock(&ctlr->portlck);
             return -1;
         }
@@ -593,9 +593,9 @@ portenable(Hci *hp, int port, int on)
 	ctlr = hp->aux;
     qlock(&ctlr->portlck);
 
-    dprint("xhci portenable\n");
+    ddprint("xhci portenable\n");
     if (on == 1) {
-        dprint("xhci cannot allow enabling of a port\n");
+        ddprint("xhci cannot allow enabling of a port\n");
         qunlock(&ctlr->portlck);
         return -1;
     } else {
@@ -609,7 +609,7 @@ portenable(Hci *hp, int port, int on)
             xhcireg_wr(ctlr, port_offset, 0x2, 0x2);
             delay(5); 
             if (xhcireg_rd(ctlr, port_offset, 0x2)) {
-                dprint("port still enabled\n");
+                ddprint("port still enabled\n");
                 qunlock(&ctlr->portlck);
                 return -1;
             }
@@ -635,35 +635,35 @@ portstatus(Hci *hp, int port)
     
     uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
     uint port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF);
-    dprint("xhci portstatus %#ux for port num %d\n", port_sts, port);
+    ddprint("xhci portstatus %#ux for port num %d\n", port_sts, port);
     return port_sts;
 }
 
 static void
 epclose(Ep *ep)
 {
-    dprint("xhci epclose\n");
+    ddprint("xhci epclose\n");
     return; 
 }
 
 static void
 epopen(Ep *ep)
 {
-    dprint("xhci epopen\n");
+    ddprint("xhci epopen\n");
     return; 
 }
 
 static long
 epwrite(Ep *ep, void *a, long count)
 {
-    dprint("xhci epwrite\n");
+    ddprint("xhci epwrite\n");
     return -1;
 }
 
 static long
 epread(Ep *ep, void *a, long count)
 {
-    dprint("xhci epread\n");
+    ddprint("xhci epread\n");
     return -1;
 }
 
@@ -685,12 +685,12 @@ handle_attachment(Hci *hp, Trb *psce) {
     ctlr = hp->aux;
     // look for which port caused the attachment event
     uint port_id = psce->qwTrb0 >> 24 & 0xFF;
-    dprint("port id %u caused attachment event\n", port_id);
+    ddprint("port id %u caused attachment event\n", port_id);
 
     // read port status
     uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
-    dprint("port status %#ux\n", port_sts);
+    ddprint("port status %#ux\n", port_sts);
 
     // read port link state to detect USB2 devices
     if (xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) == PLS_POLLING) {
@@ -699,12 +699,12 @@ handle_attachment(Hci *hp, Trb *psce) {
     }
 
     if ((xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) >> 5)  > 3) {
-        dprint("USB device is not in the correct state\n");
+        ddprint("USB device is not in the correct state\n");
     }
 
 #ifdef XHCI_DEBUG
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
-    dprint("port status %#ux\n", port_sts);
+    ddprint("port status %#ux\n", port_sts);
 #endif
 
     // now issue an Enable Slot Command
@@ -728,13 +728,13 @@ handle_attachment(Hci *hp, Trb *psce) {
 
 static void
 dump_trb(Trb *t) {
-    dprint("received event TRB: \n");
+    ddprint("received event TRB: \n");
     assert(t != nil); 
-    dprint("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
-    dprint("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
-    dprint("dwTrb2 (status): %#ux\n", t->dwTrb2);
-    dprint("dwTrb3 (status): %#ux\n", t->dwTrb3);
-    dprint("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
+    ddprint("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
+    ddprint("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
+    ddprint("dwTrb2 (status): %#ux\n", t->dwTrb2);
+    ddprint("dwTrb3 (status): %#ux\n", t->dwTrb3);
+    ddprint("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
     return; 
 }
 
@@ -745,7 +745,7 @@ dump_trb(Trb *t) {
 static void
 interrupt(Ureg*, void *arg)
 {
-    dprint("xhci interrupt\n");
+    ddprint("xhci interrupt\n");
 	Hci *hp;
 	Ctlr *ctlr;
 	//ulong status; 
@@ -784,7 +784,7 @@ interrupt(Ureg*, void *arg)
                 break; 
             case 33: // command complete
                 // TODO handle
-                dprint("received a command complete event\n");
+                ddprint("received a command complete event\n");
                 break;
         }
 
@@ -841,10 +841,10 @@ scanpci(void)
         bar = p->mem[0].bar & ~0x0F;
 
         if(bar == 0){
-            dprint("xhci: %#ux %#ux: failed to map registers\n", p->vid, p->did);
+            ddprint("xhci: %#ux %#ux: failed to map registers\n", p->vid, p->did);
             continue;
         } else {
-            dprint("xhci: vid:%#ux did:%#ux: successfully mapped registers \
+            ddprint("xhci: vid:%#ux did:%#ux: successfully mapped registers \
                 at %#ux size: %#ux\n", p->vid, p->did, bar, p->mem[0].size);
         }
   
@@ -853,17 +853,17 @@ scanpci(void)
             panic("xhci: out of memory");
   
         ctlr->xhci = vmap(bar, p->mem[0].size);
-        dprint("vmap returned\n");
+        ddprint("vmap returned\n");
         if (ctlr->xhci == nil) {
             panic("xhci: cannot map MMIO from PCI");
         }
   
         if(p->intl == 0xFF || p->intl == 0){
-            dprint("usbxhci: no irq assigned for bar %#ux\n", bar);
+            ddprint("usbxhci: no irq assigned for bar %#ux\n", bar);
             continue;
         }
 
-        dprint("xhci: %#ux %#ux: bar %#ux size %#x irq %d\n", p->vid, p->did, 
+        ddprint("xhci: %#ux %#ux: bar %#ux size %#x irq %d\n", p->vid, p->did, 
             bar, p->mem[0].size, p->intl);
 
         ctlr->pcidev = p;
@@ -878,7 +878,7 @@ scanpci(void)
 
         // Nhcis == 16 defined in usb.h
         if(i == Nhcis)
-            dprint("xhci: bug: no more controllers\n");
+            ddprint("xhci: bug: no more controllers\n");
     }
 }
 
@@ -955,13 +955,13 @@ xhcimeminit(Ctlr *ctlr)
     
     // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
     Trb *event_ring_bar = (Trb *)mallocalign(sizeof(struct Trb) * 16, _4KB, 0, 0); 
-    dprint("allocated virtual memory for event ring %#ux\n", (uint)event_ring_bar);
+    ddprint("allocated virtual memory for event ring %#ux\n", (uint)event_ring_bar);
     eventSegTabEntry *event_segtable = (eventSegTabEntry *)mallocalign(sizeof(struct EventSegTabEntry), _64B, 0, 0); 
-    dprint("allocated virtual memory for segtable %#ux\n", (uint)event_segtable);
+    ddprint("allocated virtual memory for segtable %#ux\n", (uint)event_segtable);
 
     ctlr->event_segtable.phys = (uint) PCIWADDR(event_segtable);
     ctlr->event_segtable.virt = (uint)event_segtable;
-    dprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable.phys);
+    ddprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable.phys);
     ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
     ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegSize = 16;
     
@@ -970,10 +970,10 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->event_ring.virt = (uint)event_ring_bar;
     ctlr->event_ring.curr = (uint)event_ring_bar;
     memset((void *)ctlr->event_ring.virt, 0, sizeof(struct Trb) * 16);
-    dprint("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_ring.phys);
+    ddprint("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_ring.phys);
     ctlr->event_ring.cycle = 0; 
 
-    dprint("event ring allocation done\n");
+    ddprint("event ring allocation done\n");
     
     // allocate the command ring
     Trb *cmd_ring_bar = (Trb *)mallocalign((sizeof(struct Trb) * CMD_RING_SIZE), _4KB, 0, 0); 
@@ -996,7 +996,7 @@ xhcireset(Ctlr *ctlr)
     int i; 
     ilock(ctlr);
     
-    dprint("xhci with bar = %#ux reset\n", (uint)ctlr->xhci);
+    ddprint("xhci with bar = %#ux reset\n", (uint)ctlr->xhci);
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RESET, 2);/* global reset */
     
     i = 0; 
@@ -1004,7 +1004,7 @@ xhcireset(Ctlr *ctlr)
         // WAIT until timeout
         delay(1);
         if ((i = i + 1) == 100) {
-            dprint("xhci controller reset timed out\n");
+            ddprint("xhci controller reset timed out\n");
             break; 
         }
     }
@@ -1108,52 +1108,52 @@ reset(Hci *hp)
     ctlr->max_slot = 2;
 
 #ifdef XHCI_DEBUG
-    dprint("printing all capabilities\n");
+    ddprint("printing all capabilities\n");
     int j = 0; 
     for (; j < 8; j++) {
-        dprint("cap[%d] = 0x%#ux\n", j, xhcireg_rd(ctlr, (j<<2), (uint)-1));
+        ddprint("cap[%d] = 0x%#ux\n", j, xhcireg_rd(ctlr, (j<<2), (uint)-1));
     }
 #endif
 
-    dprint("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
-    dprint("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
+    ddprint("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
+    ddprint("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
     
     // this call resets the chip and wait until regs are writable
-    dprint("going to send hardware reset\n"); 
+    ddprint("going to send hardware reset\n"); 
     xhcireset(ctlr);
     // this call initializes data structures
-    dprint("going to init memory structure\n"); 
+    ddprint("going to init memory structure\n"); 
     xhcimeminit(ctlr);
 
     // now write all the registers
-    dprint("configuring internal registers\n"); 
+    ddprint("configuring internal registers\n"); 
     
     // MAX_SLOT_EN == 2
     xhcireg_wr(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN, ctlr->max_slot);
-    dprint("readback: MAX_SLOT_EN: %d should be 2\n", xhcireg_rd(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN));
+    ddprint("readback: MAX_SLOT_EN: %d should be 2\n", xhcireg_rd(ctlr, CONFIG_OFF, CONFIG_MAXSLOTEN));
 
     // DCBAAP_LO = ctlr->devctx_bar
     xhcireg_wr(ctlr, DCBAAP_OFF, DCBAAP_LO, ctlr->devctx_bar);
     
     // DCBAAP_HI = 0
     xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, ZERO);
-    dprint("configured device contexts\n"); 
+    ddprint("configured device contexts\n"); 
    
     // set up the event ring size
     xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, 1); // write 1 to event segment table size register
-    dprint("configured event segment table size %d\n", xhcireg_rd(ctlr, ERSTSZ_OFF, 0xFFFF)); 
+    ddprint("configured event segment table size %d\n", xhcireg_rd(ctlr, ERSTSZ_OFF, 0xFFFF)); 
     
     xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_ring.phys);
     xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, 0); 
-    dprint("configured event ring deq ptr %#ux\n", (uint)xhcireg_rd(ctlr, ERDP_OFF, 0xFFFFFFFF)); 
+    ddprint("configured event ring deq ptr %#ux\n", (uint)xhcireg_rd(ctlr, ERDP_OFF, 0xFFFFFFFF)); 
 
     xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable.phys); // [5:0] is reserved 
     xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
-    dprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ERSTBA_OFF, 0xFFFFFFFF)); 
+    ddprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ERSTBA_OFF, 0xFFFFFFFF)); 
     
     // set interrupt enable = 1
     xhcireg_wr(ctlr, IMAN_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
-    dprint("interrupt is on\n"); 
+    ddprint("interrupt is on\n"); 
 
     // CRCR_CMDRING_LO = ctlr->cmd_ring_bar
     xhcireg_wr(ctlr, CRCR_OFF, CRCR_CMDRING_LO, ctlr->cmd_ring.phys);
@@ -1163,13 +1163,13 @@ reset(Hci *hp)
 
     // tell the controller to run
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_INTE, 4);
-    dprint("turn on host interrupt\n"); 
+    ddprint("turn on host interrupt\n"); 
     xhcireg_wr(ctlr, USBCMD_OFF, USBCMD_RS, 1);
-    dprint("controller is on\n"); 
+    ddprint("controller is on\n"); 
     /*
      * Linkage to the generic HCI driver.
      */
-    dprint("linking to generic HCI driver\n"); 
+    ddprint("linking to generic HCI driver\n"); 
     hp->init = init;
     hp->dump = dump;
     hp->interrupt = interrupt;
