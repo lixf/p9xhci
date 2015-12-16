@@ -523,6 +523,19 @@ seprintep(char *s, char *e, Ep *ep)
 }
 
 static void
+_dump_trb(Trb *t) {
+    __ddprint("dumping TRB: \n");
+    assert(t != nil); 
+    __ddprint("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
+    __ddprint("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
+    __ddprint("dwTrb2 (status): %#ux\n", t->dwTrb2);
+    __ddprint("dwTrb3 (status): %#ux\n", t->dwTrb3);
+    __ddprint("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
+    return; 
+}
+
+
+static void
 _dump_cmd_ring(struct Sw_ring *ring) {
     Trb *current; 
     __ddprint("debug dump of command ring\n");
@@ -530,7 +543,7 @@ _dump_cmd_ring(struct Sw_ring *ring) {
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
         current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
-        dump_trb((Trb *)current);  
+        _dump_trb(current);  
     }
 }
 
@@ -542,7 +555,7 @@ _dump_event_ring(struct Sw_ring *ring) {
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
         current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
-        dump_trb((Trb *)current);  
+        _dump_trb(current);  
     }
 }
 
@@ -796,18 +809,6 @@ handle_cmd_complete(Hci *hp, Trb *trb) {
 
 
 
-static void
-dump_trb(Trb *t) {
-    __ddprint("dumping TRB: \n");
-    assert(t != nil); 
-    __ddprint("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
-    __ddprint("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
-    __ddprint("dwTrb2 (status): %#ux\n", t->dwTrb2);
-    __ddprint("dwTrb3 (status): %#ux\n", t->dwTrb3);
-    __ddprint("cycle bit: %d\n", (t->dwTrb3 & CYCLE_BIT));
-    return; 
-}
-
 
 /** @brief This is the xHCI interrupt handler
  *  It will print out the interrupt status and check the event ring
@@ -847,7 +848,7 @@ interrupt(Ureg*, void *arg)
         // now process this event
 
 #ifdef XHCI_DEBUG
-        dump_trb(event_trb);
+        _dump_trb(event_trb);
 #endif
         int handled = 0;     
         uint trb_type = TYPE_GET(event_trb->dwTrb3);
