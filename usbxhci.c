@@ -761,8 +761,8 @@ handle_attachment(Hci *hp, Trb *psce) {
     
     ctlr = hp->aux;
     // look for which port caused the attachment event
-    uint port_id = psce->qwTrb0 >> 24 & 0xFF;
-    __ddprint("port id %u caused attachment event\n", port_id);
+    uint port_id = ((psce->qwTrb0 >> 32) >> 24) & 0xFF;
+    __ddprint("port id %d caused attachment event\n", port_id);
 
     uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
     
