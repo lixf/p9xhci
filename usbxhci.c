@@ -108,6 +108,7 @@ struct Sw_ring {
     uint virt;
     uint curr;  // the current pointer into the structure
     char cycle; 
+    uint length; 
 };
 
 struct Ctlr {
@@ -522,8 +523,52 @@ seprintep(char *s, char *e, Ep *ep)
 }
 
 static void
-dump(Hci *hp)
-{
+_dump_cmd_ring(Sw_ring *ring) {
+    __ddprint("debug dump of command ring\n");
+    __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
+        ring->phys, ring->virt, ring->curr, ring->length);
+    Trb *current = ring->virt; 
+    for (uint i = 0; i < ring->length; i++) {
+        dump_trb(current);  
+        current += 1; 
+    }
+}
+
+static void
+_dump_event_ring(Sw_ring *ring) {
+    __ddprint("debug dump of event ring\n");
+    __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
+        ring->phys, ring->virt, ring->curr, ring->length);
+    Trb *current = ring->virt; 
+    for (uint i = 0; i < ring->length; i++) {
+        dump_trb(current);  
+        current += 1; 
+    }
+}
+
+static void
+_dump_event_segtable(Sw_ring *ring) {
+    __ddprint("debug dump of event segment table\n");
+    __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
+        ring->phys, ring->virt, ring->curr, ring->length);
+}
+
+
+static void
+dump(Hci *hp) {
+    Ctlr *ctlr;    
+    ctlr = hp->aux;
+    __ddprint("debug dump of ctlr sw state\n");
+    __ddprint("active: %d, xhci: 0x%#ux, oper: 0x%#ux, runt: 0x%#ux\n", 
+        ctlr->active, (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
+    __ddprint("caplength: 0x%#ux, num_port: 0x%#ux, db_off: 0x%#ux\n", 
+        ctlr->caplength, ctlr->num_port, ctlr->db_off);
+    __ddprint("max_slot: 0x%#ux, devctx_bar: 0x%#ux\n", 
+        ctlr->max_slot, ctlr->devctx_bar);
+
+    _dump_cmd_ring(ctlr); 
+    _dump_event_ring(ctlr);
+    _dump_event_segtable(ctlr);
 }
 
 
@@ -753,7 +798,7 @@ handle_cmd_complete(Hci *hp, Trb *trb) {
 
 static void
 dump_trb(Trb *t) {
-    __ddprint("received event TRB: \n");
+    __ddprint("dumping TRB: \n");
     assert(t != nil); 
     __ddprint("qwTrb0 (data ptr low): %#ux\n", (uint)(t->qwTrb0 & 0xFFFFFFFF));
     __ddprint("qwTrb0 (data ptr high): %#ux\n", (uint)(t->qwTrb0 >> 32));
@@ -786,6 +831,10 @@ interrupt(Ureg*, void *arg)
     // TODO remove: check for interrupt pending bit
     assert(xhcireg_rd(ctlr, IMAN_OFF, 0x1) == 1);
     while (1) {
+#ifdef XHCI_DEBUG
+        _dump_event_ring(ctlr);
+        _dump_event_segtable(ctlr);
+#endif
         // process all the events until the cycle bit differs
         event_trb = (Trb *)ctlr->event_ring.curr; 
         // check cycle bit before processing
@@ -1182,6 +1231,9 @@ reset(Hci *hp)
     xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0); // ERSTBA_HI = 0
     __ddprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ERSTBA_OFF, 0xFFFFFFFF)); 
     
+#ifdef XHCI_DEBUG
+    dump(hp); 
+#endif
     // set interrupt enable = 1
     xhcireg_wr(ctlr, IMAN_OFF, 0x3, 2); // IE = 1, IP = 0 -> 2'b10 = 2
     __ddprint("interrupt is on\n"); 
