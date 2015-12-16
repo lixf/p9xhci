@@ -524,22 +524,24 @@ seprintep(char *s, char *e, Ep *ep)
 
 static void
 _dump_cmd_ring(struct Sw_ring *ring) {
+    Trb *current; 
     __ddprint("debug dump of command ring\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
-        Trb *current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
+        current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
         dump_trb(current);  
     }
 }
 
 static void
 _dump_event_ring(struct Sw_ring *ring) {
+    Trb *current; 
     __ddprint("debug dump of event ring\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
-        Trb *current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
+        current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
         dump_trb(current);  
     }
 }
