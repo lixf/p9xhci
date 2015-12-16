@@ -548,6 +548,9 @@ init(Hci *hp)
 /** @brief This function sends a software reset to the port
  *  Currently this is used for enablement of USB2 device compatibility.
  *  Not sure when this is called from devusb layer. 
+ *
+ *  @param[in] port The port number to reset.
+ *  @param[in] on This is used only to conform with the USBD interface. 
  **/
 static int
 portreset(Hci *hp, int port, int on)
@@ -692,10 +695,13 @@ handle_attachment(Hci *hp, Trb *psce) {
     uint port_id = psce->qwTrb0 >> 24 & 0xFF;
     __ddprint("port id %u caused attachment event\n", port_id);
 
-    // read port status
     uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
+    
+    // read port status
+#ifdef XHCI_DEBUG
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
     __ddprint("port status %#ux\n", port_sts);
+#endif
 
     // read port link state to detect USB2 devices
     if (xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) == PLS_POLLING) {
@@ -706,11 +712,6 @@ handle_attachment(Hci *hp, Trb *psce) {
     if ((xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) >> 5)  > 3) {
         __ddprint("USB device is not in the correct state\n");
     }
-
-#ifdef XHCI_DEBUG
-    port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
-    __ddprint("port status %#ux\n", port_sts);
-#endif
 
     // now issue an Enable Slot Command
     struct Trb slot_cmd; 
@@ -729,6 +730,24 @@ handle_attachment(Hci *hp, Trb *psce) {
 
     return; 
 }
+
+/** @brief This function handles the command completion event
+ *  
+ *
+ **/
+static void
+handle_cmd_complete(Hci *hp, Trb *trb) {
+    Ctlr *ctlr;
+    ctlr = hp->aux;
+    
+    // get the assigned slot ID
+    uint slot_id = trb->dwTrb3 >> 24 & 0xFF; 
+    __ddprint("USB slot assignment command returned slot ID: %#ux\n", slot_id);
+    
+    // potentially need to return the slot ID to map it with the physical port TODO
+    return; 
+}
+
 
 
 static void
@@ -790,6 +809,12 @@ interrupt(Ureg*, void *arg)
             case 33: // command complete
                 // TODO handle
                 __ddprint("received a command complete event\n");
+                handle_cmd_complete(hp, event_trb); 
+                handled = 1; 
+                break;
+            default: 
+                __ddprint("received an unknown event\n");
+                handled = 1; 
                 break;
         }
 
