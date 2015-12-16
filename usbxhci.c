@@ -321,8 +321,11 @@ struct EpCtx {
 }; 
 
 struct EventSegTabEntry {
-    volatile uvlong ringSegBar; // 64 bit event ring segment base address
-    volatile uint ringSegSize;  // possible sizes: 16-4096
+    volatile uint ringSegBarLo;
+    volatile uint ringSegBarHi; 
+    volatile short rsvd1; 
+    volatile unsigned short ringSegSize;  // possible sizes: 16-4096
+    volatile uint rsvd2; 
 }; 
 
 
@@ -1036,17 +1039,16 @@ xhcimeminit(Ctlr *ctlr)
     
     // setup one event ring segment tables (has one entry with 16 TRBs) for one interrupter
     Trb *event_ring_bar = (Trb *)mallocalign(sizeof(struct Trb) * 16, _4KB, 0, 0); 
-    __ddprint("allocated virtual memory for event ring %#ux\n", (uint)event_ring_bar);
     eventSegTabEntry *event_segtable = (eventSegTabEntry *)mallocalign(sizeof(struct EventSegTabEntry), _64B, 0, 0); 
-    __ddprint("allocated virtual memory for segtable %#ux\n", (uint)event_segtable);
+    memset((void *)event_segtable, 0, sizeof(struct EventSegTabEntry));
+    event_segtable->ringSegBarLo = (uint) PCIWADDR(event_ring_bar);
+    event_segtable->ringSegSize = 16;
 
     ctlr->event_segtable.phys = (uint) PCIWADDR(event_segtable);
     ctlr->event_segtable.virt = (uint)event_segtable;
     ctlr->event_segtable.length = 1;
-    __ddprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable.phys);
-    ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
-    ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegSize = 16;
     
+    // Do I actually need this info? No, but it will make it cleaner
     // set deq ptr to the first trb in the event ring
     ctlr->event_ring.phys = (uint) PCIWADDR(event_ring_bar); 
     ctlr->event_ring.virt = (uint)event_ring_bar;
