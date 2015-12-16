@@ -538,8 +538,8 @@ _dump_trb(Trb *t) {
 static void
 _dump_cmd_ring(struct Sw_ring *ring) {
     Trb *current; 
-    __ddprint("debug dump of command ring\n");
-    __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
+    __ddprint("***debug dump of command ring***\n");
+    __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
         current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
@@ -550,8 +550,8 @@ _dump_cmd_ring(struct Sw_ring *ring) {
 static void
 _dump_event_ring(struct Sw_ring *ring) {
     Trb *current; 
-    __ddprint("debug dump of event ring\n");
-    __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
+    __ddprint("***debug dump of event ring***\n");
+    __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
         current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
@@ -561,8 +561,8 @@ _dump_event_ring(struct Sw_ring *ring) {
 
 static void
 _dump_event_segtable(struct Sw_ring *ring) {
-    __ddprint("debug dump of event segment table\n");
-    __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
+    __ddprint("***debug dump of event segment table***\n");
+    __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
 }
 
@@ -571,12 +571,12 @@ static void
 dump(Hci *hp) {
     Ctlr *ctlr;    
     ctlr = hp->aux;
-    __ddprint("debug dump of ctlr sw state\n");
-    __ddprint("active: %d, xhci: 0x%#ux, oper: 0x%#ux, runt: 0x%#ux\n", 
+    __ddprint("***debug dump of ctlr sw state***\n");
+    __ddprint("active: %d, xhci: %#ux, oper: %#ux, runt: %#ux\n", 
         ctlr->active, (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
-    __ddprint("caplength: 0x%#ux, num_port: 0x%#ux, db_off: 0x%#ux\n", 
+    __ddprint("caplength: %#ux, num_port: %#ux, db_off: %#ux\n", 
         ctlr->caplength, ctlr->num_port, ctlr->db_off);
-    __ddprint("max_slot: 0x%#ux, devctx_bar: 0x%#ux\n", 
+    __ddprint("max_slot: %#ux, devctx_bar: %#ux\n", 
         ctlr->max_slot, ctlr->devctx_bar);
 
     _dump_cmd_ring(&(ctlr->cmd_ring)); 
@@ -1042,6 +1042,7 @@ xhcimeminit(Ctlr *ctlr)
 
     ctlr->event_segtable.phys = (uint) PCIWADDR(event_segtable);
     ctlr->event_segtable.virt = (uint)event_segtable;
+    ctlr->event_segtable.length = 1;
     __ddprint("physaddr for segtable %#ux\n", (uint)ctlr->event_segtable.phys);
     ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegBar  = (uvlong)PCIWADDR(event_ring_bar);
     ((eventSegTabEntry *)ctlr->event_segtable.virt)->ringSegSize = 16;
@@ -1050,6 +1051,7 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->event_ring.phys = (uint) PCIWADDR(event_ring_bar); 
     ctlr->event_ring.virt = (uint)event_ring_bar;
     ctlr->event_ring.curr = (uint)event_ring_bar;
+    ctlr->event_ring.length = 16;
     memset((void *)ctlr->event_ring.virt, 0, sizeof(struct Trb) * 16);
     __ddprint("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_ring.phys);
     ctlr->event_ring.cycle = 0; 
@@ -1061,6 +1063,7 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->cmd_ring.phys = (uint)PCIWADDR(cmd_ring_bar);
     ctlr->cmd_ring.virt = (uint)cmd_ring_bar;
     ctlr->cmd_ring.curr = (uint)cmd_ring_bar;
+    ctlr->cmd_ring.length = 1;
 
     // setup doorbell array
 
