@@ -527,10 +527,9 @@ _dump_cmd_ring(struct Sw_ring *ring) {
     __ddprint("debug dump of command ring\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
-    Trb *current = (Trb *)ring->virt; 
     for (uint i = 0; i < ring->length; i++) {
+        Trb *current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
         dump_trb(current);  
-        current += 1; 
     }
 }
 
@@ -539,10 +538,9 @@ _dump_event_ring(struct Sw_ring *ring) {
     __ddprint("debug dump of event ring\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
-    Trb *current = (Trb *)ring->virt; 
     for (uint i = 0; i < ring->length; i++) {
+        Trb *current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
         dump_trb(current);  
-        current += 1; 
     }
 }
 
@@ -832,8 +830,8 @@ interrupt(Ureg*, void *arg)
     assert(xhcireg_rd(ctlr, IMAN_OFF, 0x1) == 1);
     while (1) {
 #ifdef XHCI_DEBUG
-        _dump_event_ring(ctlr);
-        _dump_event_segtable(ctlr);
+        _dump_event_ring(&(ctlr->event_ring));
+        _dump_event_segtable(&(ctlr->event_segtable));
 #endif
         // process all the events until the cycle bit differs
         event_trb = (Trb *)ctlr->event_ring.curr; 
