@@ -569,7 +569,7 @@ _dump_event_segtable(struct Sw_ring *ring) {
     __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
-        current = (Trb *)(ring->virt + i * sizeof(struct EventSegTabEntry)); 
+        current = (eventSegTabEntry *)(ring->virt + i * sizeof(struct EventSegTabEntry)); 
         __ddprint("entry %d:\n", i);
         __ddprint("barLo: %#ux, size: %d\n", 
             current->ringSegBarLo, current->ringSegSize);
@@ -1063,7 +1063,7 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->event_ring.length = 16;
     memset((void *)ctlr->event_ring.virt, 0, sizeof(struct Trb) * 16);
     __ddprint("physaddr for event ring deq  %#ux\n", (uint)ctlr->event_ring.phys);
-    ctlr->event_ring.cycle = 0; 
+    ctlr->event_ring.cycle = 1; 
 
     __ddprint("event ring allocation done\n");
     
