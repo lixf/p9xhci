@@ -644,7 +644,8 @@ portstatus(Hci *hp, int port)
     uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
     uint port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF);
     __ddprint("xhci portstatus %#ux for port num %d\n", port_sts, port);
-    return port_sts;
+    //return port_sts; TODO
+    return -1; 
 }
 
 static void
@@ -823,7 +824,7 @@ interrupt(Ureg*, void *arg)
     }
 
     // clear the interrupt pending bit
-    xhcireg_wr(ctlr, IMAN_OFF, 0x1, 0); // IP = 0 
+    xhcireg_wr(ctlr, IMAN_OFF, 0x1, 1); // IP = 0 <-- this register is a RW1C
 
 	iunlock(ctlr);
     return;
