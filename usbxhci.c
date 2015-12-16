@@ -64,8 +64,8 @@ int debug = 1;
 #define RTREG_OFF runtime_off       // Offset of start of Runtime Registers
 #define IMAN_OFF (RTREG_OFF + 0x20) // Interrupt management register
 #define ERSTSZ_OFF (RTREG_OFF + 0x28)   // Event segment size
-#define ERDP_OFF (RTREG_OFF + 0x30)     // Event ring dequeue
-#define ERSTBA_OFF (RTREG_OFF + 0x38)   // Event sgement bar 
+#define ERSTBA_OFF (RTREG_OFF + 0x30)   // Event sgement bar 
+#define ERDP_OFF (RTREG_OFF + 0x38)     // Event ring dequeue
 
 
 /* mask of each used bits for different control signals */
@@ -564,9 +564,16 @@ _dump_event_ring(struct Sw_ring *ring) {
 
 static void
 _dump_event_segtable(struct Sw_ring *ring) {
+    eventSegTabEntry *current; 
     __ddprint("***debug dump of event segment table***\n");
     __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
+    for (uint i = 0; i < ring->length; i++) {
+        current = (Trb *)(ring->virt + i * sizeof(struct EventSegTabEntry)); 
+        __ddprint("entry %d:\n", i);
+        __ddprint("barLo: %#ux, size: %d\n", 
+            current->ringSegBarLo, current->ringSegSize);
+    }
 }
 
 
