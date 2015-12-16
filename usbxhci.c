@@ -523,7 +523,7 @@ seprintep(char *s, char *e, Ep *ep)
 }
 
 static void
-_dump_cmd_ring(Sw_ring *ring) {
+_dump_cmd_ring(struct Sw_ring *ring) {
     __ddprint("debug dump of command ring\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
@@ -535,7 +535,7 @@ _dump_cmd_ring(Sw_ring *ring) {
 }
 
 static void
-_dump_event_ring(Sw_ring *ring) {
+_dump_event_ring(struct Sw_ring *ring) {
     __ddprint("debug dump of event ring\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
@@ -547,7 +547,7 @@ _dump_event_ring(Sw_ring *ring) {
 }
 
 static void
-_dump_event_segtable(Sw_ring *ring) {
+_dump_event_segtable(struct Sw_ring *ring) {
     __ddprint("debug dump of event segment table\n");
     __ddprint("phys: 0x%#ux, virt: 0x%#ux, curr: 0x%#ux, length: 0x%#ux\n", 
         ring->phys, ring->virt, ring->curr, ring->length);
@@ -566,9 +566,9 @@ dump(Hci *hp) {
     __ddprint("max_slot: 0x%#ux, devctx_bar: 0x%#ux\n", 
         ctlr->max_slot, ctlr->devctx_bar);
 
-    _dump_cmd_ring(ctlr); 
-    _dump_event_ring(ctlr);
-    _dump_event_segtable(ctlr);
+    _dump_cmd_ring(ctlr->cmd_ring); 
+    _dump_event_ring(ctlr->event_ring);
+    _dump_event_segtable(ctlr->event_segtable);
 }
 
 
