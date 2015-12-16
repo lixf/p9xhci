@@ -530,7 +530,7 @@ _dump_cmd_ring(struct Sw_ring *ring) {
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
         current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
-        dump_trb(current);  
+        dump_trb((Trb *)current);  
     }
 }
 
@@ -542,7 +542,7 @@ _dump_event_ring(struct Sw_ring *ring) {
         ring->phys, ring->virt, ring->curr, ring->length);
     for (uint i = 0; i < ring->length; i++) {
         current = (Trb *)(ring->virt + i * sizeof(struct Trb)); 
-        dump_trb(current);  
+        dump_trb((Trb *)current);  
     }
 }
 
