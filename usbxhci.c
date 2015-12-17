@@ -351,8 +351,8 @@ typedef struct EventSegTabEntry eventSegTabEntry;
 
 // Function defs
 static void _dump_trb(Trb *t);
-static void _dump_cmd_ring(struct sw_ring *ring);
-static void _dump_event_ring(struct sw_ring *ring);
+static void _dump_cmd_ring(struct Sw_ring *ring);
+static void _dump_event_ring(struct Sw_ring *ring);
 static void _dump_event_segtable(struct Sw_ring *ring); 
 static void dump(Hci *hp); 
 
@@ -558,7 +558,7 @@ _dump_trb(Trb *t) {
 
 
 static void
-_dump_cmd_ring(struct sw_ring *ring) {
+_dump_cmd_ring(struct Sw_ring *ring) {
     Trb *current; 
     __ddprint("***debug dump of command ring***\n");
     __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
@@ -570,7 +570,7 @@ _dump_cmd_ring(struct sw_ring *ring) {
 }
 
 static void
-_dump_event_ring(struct sw_ring *ring) {
+_dump_event_ring(struct Sw_ring *ring) {
     Trb *current; 
     __ddprint("***debug dump of event ring***\n");
     __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
@@ -650,11 +650,11 @@ portreset(Hci *hp, int port, int on)
     }
     
     ctlr = hp->aux;
-    qlock(&ctlr->portlck);
-    if(waserror()){
-    	qunlock(&ctlr->portlck);
-    	nexterror();
-    }
+    //qlock(&ctlr->portlck);
+    //if(waserror()){
+    //    qunlock(&ctlr->portlck);
+    //	  nexterror();
+    //}
     // now send the reset command to the port controlling register
     uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
     xhcireg_wr(ctlr, port_offset, 0x10, 0x10); 
@@ -664,12 +664,14 @@ portreset(Hci *hp, int port, int on)
         wait++; 
         if (wait == 100) {
             __ddprint("xhci port %d reset timeout", port);
-            qunlock(&ctlr->portlck);
+            //qunlock(&ctlr->portlck);
             return -1;
         }
     }
 
-    qunlock(&ctlr->portlck);
+    __ddprint("port reset successful\n")
+
+    //qunlock(&ctlr->portlck);
     return 0;
 }
 
@@ -797,13 +799,15 @@ handle_attachment(Hci *hp, Trb *psce) {
         // this is a USB2 device
         portreset(hp, port_id, 1);
         
+#ifdef XHCI_DEBUG
+        port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
+        __ddprint("port status %#ux\n", port_sts);
+#endif
         // after we reset the port, we will have to receive another
         // port status change event
         return; 
     }
     
-    __ddprint("USB device state is %d\n", port_state);
-
     if (port_state != 0) {
         __ddprint("USB device is not in the correct state\n");
     }
