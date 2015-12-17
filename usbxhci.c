@@ -490,6 +490,9 @@ static Ctlr* ctlrs[Nhcis];
 
 static void inline
 ring_bell(Ctlr *ctlr, uint index, uint db) {
+#ifdef XHCI_DEBUG
+    __ddprint("ringing doorbell index %d, val %#ux", index, db);
+#endif
     assert(index < ctlr->max_slot);
     xhcireg_wr(ctlr, (ctlr->db_off + index * sizeof(uint)), 0xFFFFFFFF, db);
 }
@@ -504,6 +507,12 @@ send_command(Ctlr *ctlr, Trb *trb) {
     if (ctlr == nil || ctlr->cmd_ring.virt == 0 || trb == nil) {
         panic("xhci send command internal error\n");
     } else {
+
+#ifdef XHCI_DEBUG
+        __ddprint("sending command:\n");
+        _dump_trb(trb);
+#endif
+
         // FIXME how do I use memcpy??
         Trb *dst = (Trb *)ctlr->cmd_ring.virt;
         Trb *src = (Trb *)trb;
@@ -637,7 +646,7 @@ portreset(Hci *hp, int port, int on)
     	nexterror();
     }
     // now send the reset command to the port controlling register
-    uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
+    uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
     xhcireg_wr(ctlr, port_offset, 0x10, 0x10); 
     int wait = 0;
     while (xhcireg_rd(ctlr, port_offset, 0x10)) { // loop on reset bit
@@ -676,7 +685,7 @@ portenable(Hci *hp, int port, int on)
         return -1;
     } else {
         // send a disable command to PORTSTS register
-        uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
+        uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
         uint port_sts = xhcireg_rd(ctlr, port_offset, 0x2);  //read the port enable bit
         if (port_sts == 0) {
             qunlock(&ctlr->portlck);
@@ -709,7 +718,7 @@ portstatus(Hci *hp, int port)
 	Ctlr *ctlr;
 	ctlr = hp->aux;
     
-    uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
+    uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
     uint port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF);
     __ddprint("xhci portstatus %#ux for port num %d\n", port_sts, port);
     //return port_sts; TODO
@@ -764,7 +773,7 @@ handle_attachment(Hci *hp, Trb *psce) {
     uint port_id = (psce->qwTrb0 >> 24) & 0xFF;
     __ddprint("port id %d caused attachment event\n", port_id);
 
-    uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
+    uint port_offset = PORTSC_OFF + (port_id-1) * PORTSC_ENUM_OFF; 
     
     // read port status
 #ifdef XHCI_DEBUG
@@ -772,7 +781,7 @@ handle_attachment(Hci *hp, Trb *psce) {
     __ddprint("port status %#ux\n", port_sts);
 #endif
     
-    uint port_state = xhcireg_rd(ctlr, port_offset, PORTSTS_PLS);  
+    uint port_state = xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) >> 5;  
     // read port link state to detect USB2 devices
     if (port_state == PLS_POLLING) {
         // this is a USB2 device
@@ -891,6 +900,8 @@ interrupt(Ureg*, void *arg)
         if (handled) break; 
     }
 
+    __ddprint("event handled\n");
+    
     // clear the interrupt pending bit
     xhcireg_wr(ctlr, IMAN_OFF, 0x1, 1); // IP = 0 <-- this register is a RW1C
 
