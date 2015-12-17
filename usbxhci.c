@@ -31,6 +31,8 @@ static uint caplength;
 static uint runtime_off; 
 int debug = 1;
 
+
+
 #define XHCI_DEBUG
 /* Hard coded values */
 #define XHCI_MAXSLOTSEN 2 // defines the max. num of slots enabled by sw
@@ -347,6 +349,14 @@ typedef struct Packed32B packed32B;
 typedef struct Packed16B packed16B; 
 typedef struct EventSegTabEntry eventSegTabEntry; 
 
+// Function defs
+static void _dump_trb(Trb *t);
+static void _dump_cmd_ring(struct sw_ring *ring);
+static void _dump_event_ring(struct sw_ring *ring);
+static void _dump_event_segtable(struct Sw_ring *ring); 
+static void dump(Hci *hp); 
+
+
 /*********************************************
  * xHCI specific functions
  *********************************************/
@@ -548,7 +558,7 @@ _dump_trb(Trb *t) {
 
 
 static void
-_dump_cmd_ring(struct Sw_ring *ring) {
+_dump_cmd_ring(struct sw_ring *ring) {
     Trb *current; 
     __ddprint("***debug dump of command ring***\n");
     __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
@@ -560,7 +570,7 @@ _dump_cmd_ring(struct Sw_ring *ring) {
 }
 
 static void
-_dump_event_ring(struct Sw_ring *ring) {
+_dump_event_ring(struct sw_ring *ring) {
     Trb *current; 
     __ddprint("***debug dump of event ring***\n");
     __ddprint("phys: %#ux, virt: %#ux, curr: %#ux, length: %#ux\n", 
