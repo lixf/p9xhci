@@ -618,7 +618,7 @@ init(Hci *hp)
  *  Not sure when this is called from devusb layer. 
  *
  *  @param[in] port The port number to reset.
- *  @param[in] on This is used only to conform with the USBD interface. 
+ *  @param[in] on Always 1, this is used only to conform with USBD interface. 
  **/
 static int
 portreset(Hci *hp, int port, int on)
@@ -640,7 +640,7 @@ portreset(Hci *hp, int port, int on)
     uint port_offset = PORTSC_OFF + port * PORTSC_ENUM_OFF; 
     xhcireg_wr(ctlr, port_offset, 0x10, 0x10); 
     int wait = 0;
-    while (xhcireg_rd(ctlr, port_offset, 0x10)) {
+    while (xhcireg_rd(ctlr, port_offset, 0x10)) { // loop on reset bit
         delay(10);
         wait++; 
         if (wait == 100) {
@@ -761,7 +761,7 @@ handle_attachment(Hci *hp, Trb *psce) {
     
     ctlr = hp->aux;
     // look for which port caused the attachment event
-    uint port_id = ((psce->qwTrb0 >> 32) >> 24) & 0xFF;
+    uint port_id = (psce->qwTrb0 >> 24) & 0xFF;
     __ddprint("port id %d caused attachment event\n", port_id);
 
     uint port_offset = PORTSC_OFF + port_id * PORTSC_ENUM_OFF; 
@@ -771,14 +771,21 @@ handle_attachment(Hci *hp, Trb *psce) {
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
     __ddprint("port status %#ux\n", port_sts);
 #endif
-
+    
+    uint port_state = xhcireg_rd(ctlr, port_offset, PORTSTS_PLS);  
     // read port link state to detect USB2 devices
-    if (xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) == PLS_POLLING) {
+    if (port_state == PLS_POLLING) {
         // this is a USB2 device
         portreset(hp, port_id, 1);
+        
+        // after we reset the port, we will have to receive another
+        // port status change event
+        return; 
     }
+    
+    __ddprint("USB device state is %d\n", port_state);
 
-    if ((xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) >> 5)  > 3) {
+    if (port_state != 0) {
         __ddprint("USB device is not in the correct state\n");
     }
 
@@ -787,7 +794,8 @@ handle_attachment(Hci *hp, Trb *psce) {
     slot_cmd.qwTrb0 = 0;
     slot_cmd.dwTrb2 = 0; 
     uint trb3 = TYPE_SET(9);                // enable slot
-    // TODO trb3 |= EP_SET(ctlr->ext_cap.slot_type);// slot type
+    // TODO trb3 |= EP_SET(ctlr->ext_cap.slot_type);// slot type extended cap register page 292 USB3 spec
+    trb3 |= EP_SET(0);
     trb3 |= ctlr->cmd_ring.cycle;           // cycle bit
     slot_cmd.dwTrb3 = trb3; 
     
