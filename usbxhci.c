@@ -32,10 +32,12 @@
 #include"../port/error.h"
 #include"usb.h"
 
+#define XHCI_DEBUG
+
 #ifdef XHCI_DEBUG
 #define __ddprint print
 #else 
-#define __ddprint if(false) print
+#define __ddprint if(0) print
 #endif
 
 /* static values -- read from CAPREG */
@@ -43,7 +45,6 @@ static uint caplength;
 static uint runtime_off; 
 int debug = 1;
 
-#define XHCI_DEBUG
 /* Changable hardcoded values */
 #define XHCI_MAXSLOTSEN 2   /* Defines the max. num of slots enabled by sw */
 #define CMD_RING_SIZE 32    /* Defines the number of TRBs in a CMD ring */
