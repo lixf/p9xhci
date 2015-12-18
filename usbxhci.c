@@ -727,7 +727,6 @@ interrupt(Ureg*, void *arg)
    
     while(1){
         _dump_event_ring(&(ctlr->event_ring));
-        _dump_event_segtable(&(ctlr->event_segtable));
         
         event_trb = (Trb *)ctlr->event_ring.curr; 
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
@@ -743,7 +742,7 @@ interrupt(Ureg*, void *arg)
         switch(trb_type){
             case EVENT_PORT_STS_CHANGE:
                 handleattach(hp, event_trb); 
-                handled = 1; 
+                //handled = 0; 
                 break; 
             case EVENT_CMD_COMPLETE:
                 __ddprint("received a command complete event\n");
