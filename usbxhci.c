@@ -423,12 +423,18 @@ send_command(Ctlr *ctlr, Trb *trb)
 #endif
 
         // FIXME Bug 2.1 Should use memcpy here
-        Trb *dst = (Trb *)ctlr->cmd_ring.virt;
+        Trb *dst = (Trb *)ctlr->cmd_ring.curr;
         Trb *src = (Trb *)trb;
         dst->qwTrb0 = src->qwTrb0;
         dst->dwTrb2 = src->dwTrb2;
         dst->dwTrb3 = src->dwTrb3;
+
+        /* FIXME Assume it does not wrap around for now */
+        ctlr->cmd_ring.curr += sizeof(struct Trb); 
     }
+#ifdef XHCI_DEBUG
+    _dump_cmd_ring(&(ctlr->cmd_ring)); 
+#endif
     return; 
 }
 
@@ -689,6 +695,10 @@ handleattach(Hci *hp, Trb *psce)
     uint db = 0;
     ring_bell(ctlr, 0, db); 
     __ddprint("after ringing db, cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
+    
+    // FIXME debug 
+    port_sts = xhcireg_wr(ctlr, CRCR_OFF, 0x4, 4); 
+    __ddprint("after reset cmd ring, cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
     
     return; 
 }
