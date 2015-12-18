@@ -684,10 +684,12 @@ handleattach(Hci *hp, Trb *psce)
     
     send_command(ctlr, &slot_cmd);    
     
+    __ddprint("cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
     /* Now ring the door bell for the XHC */
     uint db = 0;
     ring_bell(ctlr, 0, db); 
-
+    __ddprint("after ringing db, cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
+    
     return; 
 }
 
@@ -977,7 +979,7 @@ setdebug(Hci*, int d)
 static void
 shutdown(Hci *hp)
 {
-    __ddpprint("shutdown called\n");
+    __ddprint("shutdown called\n");
     return;
 }
 
