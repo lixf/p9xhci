@@ -399,7 +399,7 @@ ring_bell(Ctlr *ctlr, uint index, uint db)
 #ifdef XHCI_DEBUG
     __ddprint("ringing doorbell index %d, val %#ux", index, db);
 #endif
-    assert(index < ctlr->max_slot);
+    assert(index <= ctlr->max_slot);
     xhcireg_wr(ctlr, (ctlr->db_off + index * sizeof(uint)), 0xFFFFFFFF, db);
 }
 
@@ -936,7 +936,8 @@ xhcimeminit(Ctlr *ctlr)
     ctlr->cmd_ring.phys = (uint)PCIWADDR(cmd_ring_bar);
     ctlr->cmd_ring.virt = (uint)cmd_ring_bar;
     ctlr->cmd_ring.curr = (uint)cmd_ring_bar;
-    ctlr->cmd_ring.length = 1;
+    ctlr->cmd_ring.length = CMD_RING_SIZE;
+    ctlr->cmd_ring.cycle = 1;
 }
 
 
@@ -1083,8 +1084,9 @@ reset(Hci *hp)
     xhcireg_wr(ctlr, IMAN_OFF, 0x3, 2);
     __ddprint("interrupt is on\n"); 
 
+    /* write 1 as initial value for cmd ring cycle bit */
+    xhcireg_wr(ctlr, CRCR_OFF, 0x1, ctlr->cmd_ring.cycle);
     xhcireg_wr(ctlr, CRCR_OFF, 0xFFFFFFC0, ctlr->cmd_ring.phys);
-
     xhcireg_wr(ctlr, (CRCR_OFF + 4), 0xFFFFFFFF, 0);
 
     /* tell the controller to run */
