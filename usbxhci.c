@@ -35,7 +35,7 @@
 #ifdef XHCI_DEBUG
 #define __ddprint print
 #else 
-#define __ddprint 
+#define __ddprint if(false) print
 #endif
 
 /* static values -- read from CAPREG */
