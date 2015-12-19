@@ -779,7 +779,12 @@ interrupt(Ureg*, void *arg)
         }
 
         ctlr->event_ring.curr += sizeof(struct Trb); 
-        if(handled) break; 
+        ctlr->event_ring.phys += sizeof(struct Trb); 
+        
+        if (handled) {
+            xhcireg_wr(ctlr, ctlr->runt.erdp_lo, 0xFFFFFFF0, ctlr->event_ring.phys);
+            break; 
+        }
     }
 
     __ddprint("event handled\n");
