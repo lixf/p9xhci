@@ -872,56 +872,44 @@ scanpci(void)
 /********************************************************
  ** Dead but possibly useful code
  *******************************************************/
-// This code allocates slot contexts 
-// Possibly used during device enumeration
-
-//    // allocate memory for slot (context + MaxSlotsEn) * Packed32B
-//    slotCtx *slot_ctx = xspanalloc(sizeof(struct SlotCtx), _64B, _64B);
-//    packed32B *packed_slot = xspanalloc(sizeof(struct Packed32B), _64B, _64B);
-//    
-//    // for ep contexts
-//    //uint num_ep = XHCI_MAXSLOTSEN * 2; // FIXME == 4 for now
-//    uint num_ep = 4;
-//    epCtx *ep_ctx[5];  // +1 for ep0 base dir
-//    packed32B *packed_ep[5]; 
-//    for(int i = 0; i < 5; i++) {
-//        ep_ctx[i] = (epCtx *)xspanalloc(sizeof(struct EpCtx), _64B, _64B);
-//        packed_ep[i] = (packed32B *)xspanalloc(sizeof(struct Packed32B), _64B, _64B);
-//    }
-//    
-//    // configure and pack slot context
-//    setup_default_slot_ctx(slot_ctx); 
-//    pack_slot_ctx(packed_slot, slot_ctx);
-//    
-//
-//    // configure and pack ep context
-//    setup_default_ep_ctx(ep_ctx[0]); 
-//    // mark ep in/out 
-//    pack_ep_ctx(packed_ep[0], ep_ctx[0]);
-//
-//    // ep1 OUT
-//    setup_default_ep_ctx(ep_ctx[1]); 
-//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-//    
-//    // ep1 IN
-//    setup_default_ep_ctx(ep_ctx[1]); 
-//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-//    
-//    // ep2 OUT
-//    setup_default_ep_ctx(ep_ctx[1]); 
-//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-//    
-//    // ep2 IN
-//    setup_default_ep_ctx(ep_ctx[1]); 
-//    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
-
-//    dcbaap[0] = packed_slot;
-//    dcbaap[1] = packed_ep[0];
-//    dcbaap[2] = packed_ep[1];
-//    dcbaap[3] = packed_ep[2];
-//    dcbaap[4] = packed_ep[3];
-//    dcbaap[5] = packed_ep[4];
-
+/*
+ * This code allocates slot contexts 
+ * Possibly used during device enumeration
+ * Used for example code to use the ep context code
+ *
+ *    // configure and pack slot context
+ *    setup_default_slot_ctx(slot_ctx); 
+ *    pack_slot_ctx(packed_slot, slot_ctx);
+ *    
+ *
+ *    // configure and pack ep context
+ *    setup_default_ep_ctx(ep_ctx[0]); 
+ *    // mark ep in/out 
+ *    pack_ep_ctx(packed_ep[0], ep_ctx[0]);
+ *
+ *    // ep1 OUT
+ *    setup_default_ep_ctx(ep_ctx[1]); 
+ *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+ *    
+ *    // ep1 IN
+ *    setup_default_ep_ctx(ep_ctx[1]); 
+ *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+ *    
+ *    // ep2 OUT
+ *    setup_default_ep_ctx(ep_ctx[1]); 
+ *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+ *    
+ *    // ep2 IN
+ *    setup_default_ep_ctx(ep_ctx[1]); 
+ *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
+ *
+ *    dcbaap[0] = packed_slot;
+ *    dcbaap[1] = packed_ep[0];
+ *    dcbaap[2] = packed_ep[1];
+ *    dcbaap[3] = packed_ep[2];
+ *    dcbaap[4] = packed_ep[3];
+ *    dcbaap[5] = packed_ep[4];
+ */
 
 /** @brief Initializes hardware data structures used by the XHC and save the 
  *  references in software structure
