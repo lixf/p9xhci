@@ -5,7 +5,7 @@
 
 /**
  * Bug list
- * 1. Support multiple controllers
+ * 1. Support multiple controllers **DONE**
  * 2. Command Ring operation for multiple in-flight commands
  *      2.1 memcpy in plan 9
  * 3. What's the job of init() vs. reset()
@@ -41,8 +41,6 @@
 #endif
 
 /* static values -- read from CAPREG */
-static uint caplength; 
-static uint runtime_off; 
 int debug = 1;
 
 /* Changable hardcoded values */
@@ -53,36 +51,12 @@ int debug = 1;
 #define _64B 64
 #define _4KB (4 << 10)
 
-/*************************************************
- * Control register offsets
- *************************************************/
-/* FIXME Bug #1 this definitely does not work if we have > 1 controller */
-#define OPREG_OFF caplength 
-#define CONFIG_OFF (OPREG_OFF + 0x38)
-#define USBSTS_OFF (OPREG_OFF + 0x04)
-#define DCBAAP_OFF (OPREG_OFF + 0x30)
-#define CRCR_OFF (OPREG_OFF + 0x18)
-#define USBCMD_OFF (OPREG_OFF + 0x0)
-#define PORTSC_OFF (OPREG_OFF + 0x400)
-#define PORTSC_ENUM_OFF 0x10
-
-/* capability register */
+/* Hardware Constants */
 #define CAPLENGTH_OFF (0x0)
 #define HCSPARAMS1_OFF (0x4)
 #define DB_OFF (0x14)
-
-/* runtime registers */
 #define RTS_OFF (0x18)              
-#define RTREG_OFF runtime_off
-#define IMAN_OFF (RTREG_OFF + 0x20) 
-#define ERSTSZ_OFF (RTREG_OFF + 0x28)  
-#define ERSTBA_OFF (RTREG_OFF + 0x30)  
-#define ERDP_OFF (RTREG_OFF + 0x38)    
-
-/* capability register */
-#define CAPLENGTH 0xFF
-#define HCSPARAMS1_MAXPORT 0xFF000000
-
+#define PORTSC_ENUM_OFF (0x10)
 
 /* declarations */
 struct Ctlr;  
@@ -94,7 +68,7 @@ struct Packed32B;
 struct Packed16B;   
 struct EventSegTabEntry;
 
-/* definitions */
+/* Internal definitions */
 struct Sw_ring 
 {
     /* defines the fields for a TRB ring used internally */
@@ -105,6 +79,28 @@ struct Sw_ring
     uint length; 
 };
 
+struct Oper {
+    uint base; 
+    uint config; 
+    uint usbsts; 
+    uint dcbaap_lo;
+    uint dcbaap_hi;
+    uint crcr_lo;
+    uint crcr_hi;
+    uint usbcmd; 
+    uint portsc; 
+};
+
+struct Runt {
+    uint base; 
+    uint iman; 
+    uint erstsz; 
+    uint erstba; 
+    uint erdp_lo;
+    uint erdp_hi;
+};
+
+/* Definitions */
 struct Ctlr 
 {
     Lock; 
@@ -114,8 +110,8 @@ struct Ctlr
 
     /* Hardware values */ 
     void *xhci;
-    uint oper;
-    uint runt;
+    struct Oper oper;
+    struct Runt runt;
     uint caplength; 
     uint num_port; 
     uint db_off; 
@@ -250,6 +246,34 @@ static void dump(Hci *hp);
 /*********************************************
  * xHCI specific functions
  *********************************************/
+static void
+setup_oper(Ctlr *ctlr, uint base)
+{
+    struct Oper *oper = &(ctlr->oper); 
+    oper->base = base; 
+    oper->usbcmd = base; 
+    oper->usbsts = base + 0x04; 
+    oper->config = base + 0x38; 
+    oper->dcbaap_lo = base + 0x30; 
+    oper->dcbaap_hi = base + 0x34; 
+    oper->crcr_lo   = base + 0x18; 
+    oper->crcr_hi   = base + 0x1C; 
+    oper->portsc    = base + 0x400; 
+}
+
+static void
+setup_runt(Ctlr *ctlr, uint base)
+{
+    struct Runt *runt = &(ctlr->runt); 
+    runt->base = base; 
+    runt->iman = base + 0x20; 
+    runt->erstsz    = base + 0x28; 
+    runt->erstba_lo = base + 0x30; 
+    runt->erstba_hi = base + 0x34; 
+    runt->erdp_lo   = base + 0x38; 
+    runt->erdp_hi   = base + 0x3C; 
+}
+
 /** @brief These functions parse out the context structures and pack the data
  *  into a more compact 32B struct for hardware use
  *  
@@ -374,7 +398,7 @@ setup_default_ep_ctx(epCtx *ep_ctx)
 }
 
 /** @brief This function will write to one of the registers
- *  @param TODO
+ *  NOTE: the offset is based off of the MMIO PCI BAR!
  **/
 static void
 xhcireg_wr(Ctlr *ctlr, uint offset, uint mask, uint new) 
@@ -552,7 +576,7 @@ portreset(Hci *hp, int port, int on)
     }
     
     ctlr = hp->aux;
-    uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
+    uint port_offset = ctlr->oper.portsc + (port-1) * PORTSC_ENUM_OFF; 
     xhcireg_wr(ctlr, port_offset, 0x10, 0x10); 
     int wait = 0;
     while(xhcireg_rd(ctlr, port_offset, 0x10)){
@@ -585,7 +609,7 @@ portenable(Hci *hp, int port, int on)
         qunlock(&ctlr->portlck);
         return -1;
     } else {
-        uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
+        uint port_offset = ctlr->oper.portsc + (port-1) * PORTSC_ENUM_OFF; 
         uint port_sts = xhcireg_rd(ctlr, port_offset, 0x2);
         if(port_sts == 0){
             qunlock(&ctlr->portlck);
@@ -614,7 +638,7 @@ portstatus(Hci *hp, int port)
 	Ctlr *ctlr;
 	ctlr = hp->aux;
     
-    uint port_offset = PORTSC_OFF + (port-1) * PORTSC_ENUM_OFF; 
+    uint port_offset = ctlr->oper.portsc + (port-1) * PORTSC_ENUM_OFF; 
     uint port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF);
     __ddprint("xhci portstatus %#ux for port num %d\n", port_sts, port);
     return -1; 
@@ -662,7 +686,7 @@ handleattach(Hci *hp, Trb *psce)
     uint port_id = (psce->qwTrb0 >> 24) & 0xFF;
     __ddprint("port id %d caused attachment event\n", port_id);
 
-    uint port_offset = PORTSC_OFF + (port_id-1) * PORTSC_ENUM_OFF; 
+    uint port_offset = ctlr->oper.portsc + (port-1) * PORTSC_ENUM_OFF; 
     
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
     __ddprint("port status %#ux\n", port_sts);
@@ -690,15 +714,15 @@ handleattach(Hci *hp, Trb *psce)
     
     send_command(ctlr, &slot_cmd);    
     
-    __ddprint("cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
+    __ddprint("cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     /* Now ring the door bell for the XHC */
     uint db = 0;
     ring_bell(ctlr, 0, db); 
-    __ddprint("after ringing db, cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
+    __ddprint("after ringing db, cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     
     // FIXME debug 
-    port_sts = xhcireg_wr(ctlr, CRCR_OFF, 0x4, 4); 
-    __ddprint("after reset cmd ring, cmd ring running bit: %d\n", xhcireg_rd(ctlr, CRCR_OFF, 0x8));
+    xhcireg_wr(ctlr, ctlr->oper.crcr, 0x4, 4); 
+    __ddprint("after reset cmd ring, cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     
     return; 
 }
@@ -774,7 +798,7 @@ interrupt(Ureg*, void *arg)
     /* clear the interrupt pending bit
      * IP = 0 <-- this register is a RW1C
      */
-    xhcireg_wr(ctlr, IMAN_OFF, 0x1, 1);
+    xhcireg_wr(ctlr, ctlr->runt.iman, 0x1, 1);
 
 	iunlock(ctlr);
     return;
@@ -960,11 +984,12 @@ xhcireset(Ctlr *ctlr)
     ilock(ctlr);
     
     __ddprint("xhci with bar = %#ux reset\n", (uint)ctlr->xhci);
-    xhcireg_wr(ctlr, USBCMD_OFF, 0x2, 2);
+    xhcireg_wr(ctlr, ctlr->oper.usbcmd, 0x2, 2);
     
     i = 0; 
     /* Poll on run bit 0 for ready */
-    while(xhcireg_rd(ctlr, USBSTS_OFF, 0x800) != 0){
+    uint usbsts = ctlr->oper.usbcmd; 
+    while(xhcireg_rd(ctlr, usbsts, 0x800) != 0){
         delay(1);
         if((i = i + 1) == 100){
             /* FIXME Bug #8 
@@ -1038,20 +1063,19 @@ reset(Hci *hp)
     hp->tbdf = p->tbdf;
     hp->nports = 2; /* default */
 
-    caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, CAPLENGTH);
-    runtime_off = xhcireg_rd(ctlr, RTS_OFF, 0xFFFFFFE0);
     ctlr->caplength = caplength; 
-    ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, HCSPARAMS1_MAXPORT) >> 24;
-    ctlr->oper = (uint)ctlr->xhci + caplength; 
-    ctlr->runt = (uint)ctlr->xhci + runtime_off;
+    ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, 0xFF000000) >> 24;
+   
+
+
+    // setup all MMIO registers
+    uint oper = xhcireg_rd(ctlr, CAPLENGTH_OFF, 0xFF);
+    setup_oper(ctlr, oper);
+    uint runt = xhcireg_rd(ctlr, RTS_OFF, 0xFFFFFFE0); 
+    setup_runt(ctlr, runt);
+    
     ctlr->db_off = xhcireg_rd(ctlr, DB_OFF, 0xFFFFFFFC);
     ctlr->max_slot = 2;
-
-    __ddprint("printing all capabilities\n");
-    int j = 0; 
-    for(; j < 8; j++){
-        __ddprint("cap[%d] = 0x%#ux\n", j, xhcireg_rd(ctlr, (j<<2), (uint)-1));
-    }
 
     __ddprint("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
     __ddprint("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
@@ -1068,43 +1092,40 @@ reset(Hci *hp)
     __ddprint("configuring internal registers\n"); 
     
     /* MAX_SLOT_EN == 2 TODO #3 */
-    xhcireg_wr(ctlr, CONFIG_OFF, 0xFF, ctlr->max_slot);
-    __ddprint("readback: MAX_SLOT_EN: %d should be 2\n", xhcireg_rd(ctlr, CONFIG_OFF, 0xFF));
+    xhcireg_wr(ctlr, ctlr->oper.config, 0xFF, ctlr->max_slot);
+    __ddprint("readback: MAX_SLOT_EN: %d should be 2\n", xhcireg_rd(ctlr, ctlr->oper.config, 0xFF));
 
-    xhcireg_wr(ctlr, DCBAAP_OFF, 0xFFFFFFC0, ctlr->devctx_bar);
-    xhcireg_wr(ctlr, (DCBAAP_OFF + 4), 0xFFFFFFFF, 0);
+    xhcireg_wr(ctlr, ctlr->oper.dcbaap_lo, 0xFFFFFFC0, ctlr->devctx_bar);
+    xhcireg_wr(ctlr, ctlr->oper.dcbaap_hi, 0xFFFFFFFF, 0);
     __ddprint("configured device contexts\n"); 
    
     /* set up the event segment table size == 1 TODO #2 */
-    xhcireg_wr(ctlr, ERSTSZ_OFF, 0xFFFF, EVENT_SEGTABLE); 
-    __ddprint("configured event segment table size %d\n", xhcireg_rd(ctlr, ERSTSZ_OFF, 0xFFFF)); 
+    xhcireg_wr(ctlr, ctlr->runt.erstsz, 0xFFFF, EVENT_SEGTABLE); 
+    __ddprint("configured event segment table size %d\n", xhcireg_rd(ctlr, ctlr->runt.erstsz, 0xFFFF)); 
     
-    xhcireg_wr(ctlr, ERDP_OFF, 0xFFFFFFF0, ctlr->event_ring.phys);
-    xhcireg_wr(ctlr, ERDP_OFF + 4, 0xFFFFFFFF, 0); 
-    __ddprint("configured event ring deq ptr %#ux\n", (uint)xhcireg_rd(ctlr, ERDP_OFF, 0xFFFFFFFF)); 
+    xhcireg_wr(ctlr, ctlr->runt.erdp_lo, 0xFFFFFFF0, ctlr->event_ring.phys);
+    xhcireg_wr(ctlr, ctlr->runt.erdp_hi, 0xFFFFFFFF, 0); 
+    __ddprint("configured event ring deq ptr %#ux\n", (uint)xhcireg_rd(ctlr, ctlr->runt.erdp_lo, 0xFFFFFFFF)); 
 
-    xhcireg_wr(ctlr, ERSTBA_OFF, 0xFFFFFFC0, ctlr->event_segtable.phys);
-    xhcireg_wr(ctlr, ERSTBA_OFF + 4, 0xFFFFFFFF, 0);
-    __ddprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ERSTBA_OFF, 0xFFFFFFFF)); 
+    xhcireg_wr(ctlr, ctlr->runt.erstba_lo, 0xFFFFFFC0, ctlr->event_segtable.phys);
+    xhcireg_wr(ctlr, ctlr->runt.erstba_hi, 0xFFFFFFFF, 0);
+    __ddprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ctlr->runt.erstba_lo, 0xFFFFFFFF)); 
     
-#ifdef XHCI_DEBUG
-    dump(hp); 
-#endif
     /* set interrupt enable = 1
      * IE = 1, IP = 0 -> 2'b10 = 2
      */
-    xhcireg_wr(ctlr, IMAN_OFF, 0x3, 2);
+    xhcireg_wr(ctlr, ctlr->runt->iman, 0x3, 2);
     __ddprint("interrupt is on\n"); 
 
     /* write 1 as initial value for cmd ring cycle bit */
-    xhcireg_wr(ctlr, CRCR_OFF, 0x1, ctlr->cmd_ring.cycle);
-    xhcireg_wr(ctlr, CRCR_OFF, 0xFFFFFFC0, ctlr->cmd_ring.phys);
-    xhcireg_wr(ctlr, (CRCR_OFF + 4), 0xFFFFFFFF, 0);
+    xhcireg_wr(ctlr, ctlr->oper.crcr_lo, 0x1, ctlr->cmd_ring.cycle);
+    xhcireg_wr(ctlr, ctlr->oper.crcr_lo, 0xFFFFFFC0, ctlr->cmd_ring.phys);
+    xhcireg_wr(ctlr, ctlr->oper.crcr_hi, 0xFFFFFFFF, 0);
 
     /* tell the controller to run */
-    xhcireg_wr(ctlr, USBCMD_OFF, 0x4, 4);
+    xhcireg_wr(ctlr, ctlr->oper.usbcmd, 0x4, 4);
     __ddprint("turn on host interrupt\n"); 
-    xhcireg_wr(ctlr, USBCMD_OFF, 0x1, 1);
+    xhcireg_wr(ctlr, ctlr->oper.usbcmd, 0x1, 1);
     __ddprint("controller is on\n"); 
 
     /*
