@@ -423,7 +423,7 @@ static void inline
 ring_bell(Ctlr *ctlr, uint index, uint db) 
 {
 #ifdef XHCI_DEBUG
-    __ddprint("ringing doorbell index %d, val %#ux", index, db);
+    __ddprint("ringing doorbell index %d, val %#ux\n", index, db);
 #endif
     assert(index <= ctlr->max_slot);
     xhcireg_wr(ctlr, (ctlr->db_off + index * sizeof(uint)), 0xFFFFFFFF, db);
@@ -715,15 +715,9 @@ handleattach(Hci *hp, Trb *psce)
     
     send_command(ctlr, &slot_cmd);    
     
-    __ddprint("cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     /* Now ring the door bell for the XHC */
     uint db = 0;
     ring_bell(ctlr, 0, db); 
-    __ddprint("after ringing db, cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
-    
-    // FIXME debug 
-    xhcireg_wr(ctlr, ctlr->oper.crcr_lo, 0x4, 4); 
-    __ddprint("after reset cmd ring, cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     
     return; 
 }
@@ -761,8 +755,6 @@ interrupt(Ureg*, void *arg)
     ilock(ctlr);
    
     while(1){
-        _dump_event_ring(&(ctlr->event_ring));
-        
         event_trb = (Trb *)ctlr->event_ring.curr; 
         cycle_bit = (CYCLE_BIT & event_trb->dwTrb3) ? 1 : 0;
         if(cycle_bit != ctlr->event_ring.cycle){
@@ -777,12 +769,11 @@ interrupt(Ureg*, void *arg)
         switch(trb_type){
             case EVENT_PORT_STS_CHANGE:
                 handleattach(hp, event_trb); 
-                //handled = 0; 
+                delay(50); /* Hack or required? */
                 break; 
             case EVENT_CMD_COMPLETE:
                 __ddprint("received a command complete event\n");
                 handlecmd(hp, event_trb); 
-                handled = 1; 
                 break;
             default: 
                 __ddprint("received an unknown event\n");
