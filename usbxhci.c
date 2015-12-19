@@ -1,6 +1,6 @@
 /**
  * USB eXtensible Host Controller Interface driver.
- *
+ * NOT FUNCTIONAL
  **/
 
 /**
@@ -15,12 +15,26 @@
  * 7. Can remove the need for a event ring deq in ctlr. instead we can use 
  * the structure in Sw_ring. 
  * 8. Need a clean way to report critical errors (instead of panicking)
+ * 9. Clearing Interrupt Pending bit seem to disable all future interrupts
+ *      9.1 need to clear EINT bit? 
+ *      9.2 need to clear EHB bit? 
+ *      9.3 refer to XHCI spec section 4.17.5
  *
  *
  * TODO List
  * 1. Command completion report slot ID
  * 2. Try diff sizes for event seg table
  * 3. Try diff sizes for slot enabled
+ * 4. The slot and device context structures need to be added
+ *
+ *
+ * Reference List
+ * 1. The Plan 9 uhci, ohci source code
+ * 2. freeBSD XHCI driver code
+ * 3. XHCI spec
+ * 4. UHCI spec -- for PCI and interrupt
+ * 5. Plan 9 references 
+ *
  **/
 
 #include"u.h"
