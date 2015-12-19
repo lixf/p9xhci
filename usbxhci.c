@@ -699,6 +699,7 @@ handleattach(Hci *hp, Trb *psce)
         
         port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
         __ddprint("port status %#ux\n", port_sts);
+        return; 
     }
     
     if(port_state != 0)
@@ -768,8 +769,8 @@ interrupt(Ureg*, void *arg)
         uint trb_type = TYPE_GET(event_trb->dwTrb3);
         switch(trb_type){
             case EVENT_PORT_STS_CHANGE:
+                __ddprint("received a port ststus change event\n");
                 handleattach(hp, event_trb); 
-                delay(50); /* Hack or required? */
                 break; 
             case EVENT_CMD_COMPLETE:
                 __ddprint("received a command complete event\n");
@@ -787,9 +788,10 @@ interrupt(Ureg*, void *arg)
 
     __ddprint("event handled\n");
     
-    /* clear the interrupt pending bit
-     * IP = 0 <-- this register is a RW1C
+    /* Clear the Event interrupt bit first to avoid the race condition
+     * specified in the USB3 specs
      */
+    xhcireg_wr(ctlr, ctlr->oper.usbsts, 0x8, 8); // EINT
     xhcireg_wr(ctlr, ctlr->runt.iman, 0x1, 1);
 
 	iunlock(ctlr);
@@ -1104,9 +1106,8 @@ reset(Hci *hp)
     __ddprint("configured event segtable bar%#ux\n", (uint)xhcireg_rd(ctlr, ctlr->runt.erstba_lo, 0xFFFFFFFF)); 
     
     /* set interrupt enable = 1
-     * IE = 1, IP = 0 -> 2'b10 = 2
      */
-    xhcireg_wr(ctlr, ctlr->runt.iman, 0x3, 2);
+    xhcireg_wr(ctlr, ctlr->runt.iman, 0x2, 2);
     __ddprint("interrupt is on\n"); 
 
     /* write 1 as initial value for cmd ring cycle bit */
