@@ -95,7 +95,8 @@ struct Runt {
     uint base; 
     uint iman; 
     uint erstsz; 
-    uint erstba; 
+    uint erstba_lo;
+    uint erstba_hi;
     uint erdp_lo;
     uint erdp_hi;
 };
@@ -537,7 +538,7 @@ dump(Hci *hp)
     ctlr = hp->aux;
     __ddprint("***debug dump of ctlr sw state***\n");
     __ddprint("active: %d, xhci: %#ux, oper: %#ux, runt: %#ux\n", 
-        ctlr->active, (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
+        ctlr->active, (uint)ctlr->xhci, ctlr->oper.base, ctlr->runt.base);
     __ddprint("caplength: %#ux, num_port: %#ux, db_off: %#ux\n", 
         ctlr->caplength, ctlr->num_port, ctlr->db_off);
     __ddprint("max_slot: %#ux, devctx_bar: %#ux\n", 
@@ -686,7 +687,7 @@ handleattach(Hci *hp, Trb *psce)
     uint port_id = (psce->qwTrb0 >> 24) & 0xFF;
     __ddprint("port id %d caused attachment event\n", port_id);
 
-    uint port_offset = ctlr->oper.portsc + (port-1) * PORTSC_ENUM_OFF; 
+    uint port_offset = ctlr->oper.portsc + (port_id-1) * PORTSC_ENUM_OFF; 
     
     port_sts = xhcireg_rd(ctlr, port_offset, 0xFFFFFFFF); 
     __ddprint("port status %#ux\n", port_sts);
@@ -721,7 +722,7 @@ handleattach(Hci *hp, Trb *psce)
     __ddprint("after ringing db, cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     
     // FIXME debug 
-    xhcireg_wr(ctlr, ctlr->oper.crcr, 0x4, 4); 
+    xhcireg_wr(ctlr, ctlr->oper.crcr_lo, 0x4, 4); 
     __ddprint("after reset cmd ring, cmd ring running bit: %d\n", xhcireg_rd(ctlr, ctlr->oper.crcr_lo, 0x8));
     
     return; 
@@ -1063,13 +1064,13 @@ reset(Hci *hp)
     hp->tbdf = p->tbdf;
     hp->nports = 2; /* default */
 
-    ctlr->caplength = caplength; 
+    ctlr->caplength = xhcireg_rd(ctlr, CAPLENGTH_OFF, 0xFF);; 
     ctlr->num_port = xhcireg_rd(ctlr, HCSPARAMS1_OFF, 0xFF000000) >> 24;
    
 
 
     // setup all MMIO registers
-    uint oper = xhcireg_rd(ctlr, CAPLENGTH_OFF, 0xFF);
+    uint oper = ctlr->caplength;
     setup_oper(ctlr, oper);
     uint runt = xhcireg_rd(ctlr, RTS_OFF, 0xFFFFFFE0); 
     setup_runt(ctlr, runt);
@@ -1077,8 +1078,8 @@ reset(Hci *hp)
     ctlr->db_off = xhcireg_rd(ctlr, DB_OFF, 0xFFFFFFFC);
     ctlr->max_slot = 2;
 
-    __ddprint("usbxhci: caplength %d num_port %d\n", caplength, ctlr->num_port);
-    __ddprint("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper, ctlr->runt);
+    __ddprint("usbxhci: caplength %d num_port %d\n", ctlr->caplength, ctlr->num_port);
+    __ddprint("CAP base 0x%#ux OPER base 0x%#ux RUNT base 0x%#ux\n", (uint)ctlr->xhci, ctlr->oper.base, ctlr->runt.base);
     
     /* this call resets the chip and wait until regs are writable */
     __ddprint("going to send hardware reset\n"); 
@@ -1114,7 +1115,7 @@ reset(Hci *hp)
     /* set interrupt enable = 1
      * IE = 1, IP = 0 -> 2'b10 = 2
      */
-    xhcireg_wr(ctlr, ctlr->runt->iman, 0x3, 2);
+    xhcireg_wr(ctlr, ctlr->runt.iman, 0x3, 2);
     __ddprint("interrupt is on\n"); 
 
     /* write 1 as initial value for cmd ring cycle bit */
