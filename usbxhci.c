@@ -457,9 +457,6 @@ send_command(Ctlr *ctlr, Trb *trb)
         /* FIXME Assume it does not wrap around for now */
         ctlr->cmd_ring.curr += sizeof(struct Trb); 
     }
-#ifdef XHCI_DEBUG
-    _dump_cmd_ring(&(ctlr->cmd_ring)); 
-#endif
     return; 
 }
 
@@ -701,9 +698,6 @@ handleattach(Hci *hp, Trb *psce)
         __ddprint("port status %#ux\n", port_sts);
         return; 
     }
-    
-    if(port_state != 0)
-        __ddprint("USB device is not in the correct state\n");
 
     /* Now issue an Enable Slot Command */
     struct Trb slot_cmd; 
@@ -771,10 +765,12 @@ interrupt(Ureg*, void *arg)
             case EVENT_PORT_STS_CHANGE:
                 __ddprint("received a port ststus change event\n");
                 handleattach(hp, event_trb); 
+                handled = 1; 
                 break; 
             case EVENT_CMD_COMPLETE:
                 __ddprint("received a command complete event\n");
                 handlecmd(hp, event_trb); 
+                handled = 1; 
                 break;
             default: 
                 __ddprint("received an unknown event\n");
