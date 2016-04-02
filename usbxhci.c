@@ -131,9 +131,10 @@ struct Ctlr
     uint num_port; 
     uint db_off; 
     uint max_slot;
+    uint devctx_bar; 
 
     /* software values */
-    uint devctx_bar; 
+    struct Packed32B **dcbaap; 
     struct Sw_ring cmd_ring;  
     struct Sw_ring event_ring;
     struct Sw_ring event_segtable;
@@ -713,6 +714,12 @@ handleattach(Hci *hp, Trb *psce)
         return; 
     }
 
+    // Make PLS and PED are correct
+    port_state = xhcireg_rd(ctlr, port_offset, PORTSTS_PLS) >> 5;  
+    if (port_sts & 0x2 != 1 || port_state != PLS_U0) {
+        panic("PLS or PED flag have wrong value");
+    }
+
     /* Now issue an Enable Slot Command */
     struct Trb slot_cmd; 
     slot_cmd.qwTrb0 = 0;
@@ -731,20 +738,76 @@ handleattach(Hci *hp, Trb *psce)
     return; 
 }
 
+
+
+/* Generic function to handle cmd completion events that only handles
+ * completion of the slot assignment event for now. 
+ */
 static void
 handlecmd(Hci *hp, Trb *trb) 
 {
     Ctlr *ctlr;
     ctlr = hp->aux;
+
+    /* Find out what type of cmd is completed*/
     
+    
+    /* Slot Enable Command completed */
     uint slot_id = trb->dwTrb3 >> 24 & 0xFF; 
     __ddprint("USB slot assignment command returned slot ID: %#ux\n", slot_id);
-    
-    // potentially need to return the slot ID to map it with the physical port 
-    // TODO #1
+   
+    // This call initializes the slot contexts
+    init_slot(hp, trb, slot_id);
+
+    /* Other types TODO*/
     return; 
 }
 
+
+static void
+init_slot(Hci *hp, uint id)
+{
+    /* First it allocates a Input Context
+     * We don't really have this type because it's only used for 
+     * passing commands into the device. So we assemble the structure
+     * whenever we need to use it 
+     */ 
+    packed32B *inputCtx = (packed32B *)mallocalign((sizeof(packed32B)*32, _4KB, 0, _4KB); 
+    memset(inputCtx, 0, sizeof(packed32B)*32);
+    
+    // input the fields of the Input Control Context
+    packed32B *inCtrlCtx = &(inputCtx[0]);
+    inCtrlCtx->words[0] = 0x3; // A0 & A1 == 1
+
+    // need specific route string + root hub port number
+    slotCtx isc; 
+    isc.ctxEntry = 1; 
+    pack_slot_ctx(&inputCtx[1], &isc);
+
+    // allocate and initialize the Transfer Ring for the Default Control Endpoint
+    //
+
+    // Init in Input default control EP0 Context
+    epCtx idcec; 
+    idcec.epType = ; //Control
+    idcec.maxPktSize = ; // func of PORTSC Port Speed? 
+    idcec.trDeqPtrLo = ; // default transfer ring
+    idcec.deqCyState = 1;
+    idcec.cErr = 3; 
+    pack_slot_ctx(&inputCtx[2], &idcec);
+
+    // Now allocate and init the Output Context
+    packed32B *outputCtx = (packed32B *)mallocalign((sizeof(packed32B)*32, _4KB, 0, _4KB); 
+    memset(outputCtx, 0, sizeof(packed32B)*32);
+
+    // finally, link up the pieces and write things out
+    ctlr->dcbaap[id] = outputCtx;
+    // issue Address Device Command
+
+
+
+
+}
 
 /* The xHCI interrupt handler will print out the interrupt status and 
  * check the event ring
@@ -883,47 +946,6 @@ scanpci(void)
     }
 }
 
-/********************************************************
- ** Dead but possibly useful code
- *******************************************************/
-/*
- * This code allocates slot contexts 
- * Possibly used during device enumeration
- * Used for example code to use the ep context code
- *
- *    // configure and pack slot context
- *    setup_default_slot_ctx(slot_ctx); 
- *    pack_slot_ctx(packed_slot, slot_ctx);
- *    
- *
- *    // configure and pack ep context
- *    setup_default_ep_ctx(ep_ctx[0]); 
- *    // mark ep in/out 
- *    pack_ep_ctx(packed_ep[0], ep_ctx[0]);
- *
- *    // ep1 OUT
- *    setup_default_ep_ctx(ep_ctx[1]); 
- *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
- *    
- *    // ep1 IN
- *    setup_default_ep_ctx(ep_ctx[1]); 
- *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
- *    
- *    // ep2 OUT
- *    setup_default_ep_ctx(ep_ctx[1]); 
- *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
- *    
- *    // ep2 IN
- *    setup_default_ep_ctx(ep_ctx[1]); 
- *    pack_ep_ctx(packed_ep[1], ep_ctx[1]);
- *
- *    dcbaap[0] = packed_slot;
- *    dcbaap[1] = packed_ep[0];
- *    dcbaap[2] = packed_ep[1];
- *    dcbaap[3] = packed_ep[2];
- *    dcbaap[4] = packed_ep[3];
- *    dcbaap[5] = packed_ep[4];
- */
 
 /** @brief Initializes hardware data structures used by the XHC and save the 
  *  references in software structure
@@ -940,6 +962,7 @@ xhcimeminit(Ctlr *ctlr)
     packed32B **dcbaap = (packed32B **)mallocalign((sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2), _64B, 0, 0); 
     memset((void *)dcbaap, 0, (sizeof(packed32B *) * (1+XHCI_MAXSLOTSEN) * 2));
     ctlr->devctx_bar = ((uint)PCIWADDR(dcbaap) & 0xFFFFFFFF); 
+    ctrl->dcbaap = dcbaap; 
     
     /* setup one event ring segment tables (has one entry with 16 TRBs) for 
      * one interrupter 
